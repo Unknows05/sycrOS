@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=sycrOS
+Comment=One USB stick for Windows, Linux and macOS installers
+Exec=sh -c 'pkexec sycros || sudo sycros; echo; read -p "Press Enter to close" x'
+Terminal=true
+Icon=drive-removable-media
+Categories=System;Utility;
