@@ -95,9 +95,14 @@ jobs:
           $B --version
           $B disks
           cd "$RUNNER_TEMP"
-          # real installer-like volumes made by Apple's own tool, zlib + LZFSE compressed
-          hdiutil create -quiet -size 60m -fs HFS+ -volname "Install macOS Test" -format UDZO zlib.dmg
-          hdiutil create -quiet -size 40m -fs HFS+ -volname "macOS Base System" -format ULFO lzfse.dmg
+          # real installer-like volumes made by Apple's own tool, then zlib + LZFSE compressed.
+          # hdiutil is flaky on CI machines: retry a few times.
+          mk() { for i in 1 2 3 4 5; do "$@" && return 0; echo "hdiutil failed, retry $i"; sleep 5; done; return 1; }
+          mk hdiutil create -size 60m -fs HFS+ -volname "Install macOS Test" -ov raw1.dmg
+          mk hdiutil create -size 40m -fs HFS+ -volname "macOS Base System" -ov raw2.dmg
+          mk hdiutil convert raw1.dmg -format UDZO -ov -o zlib.dmg
+          mk hdiutil convert raw2.dmg -format ULFO -ov -o lzfse.dmg
+          ls -la *.dmg
           $B inspect zlib.dmg lzfse.dmg
           $B init stick.img --size 1G --mac-space 200M --yes
           $B add stick.img zlib.dmg lzfse.dmg
