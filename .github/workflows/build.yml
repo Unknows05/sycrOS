@@ -1,7 +1,7 @@
 name: Build sycros
 
 # Every push: check + test + build packages (download them under "Artifacts").
-# Push a tag like v0.2.0: the same packages are also published as a GitHub Release.
+# Push a tag like v0.2.1: the same packages are also published as a GitHub Release.
 on:
   push:
   pull_request:
@@ -12,23 +12,24 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y gdisk
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --release
 
   linux:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      # static program (musl): runs on any 64-bit Linux
       - run: packaging/linux/build-deb.sh
       - run: |
-          mkdir -p pkg/sycros && cp target/release/sycros README.md pkg/sycros/
+          mkdir -p pkg/sycros && cp target/x86_64-unknown-linux-musl/release/sycros README.md pkg/sycros/
           tar -C pkg -czf dist/sycros-linux-x86_64.tar.gz sycros
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sycros-linux
           path: dist/*
@@ -37,14 +38,15 @@ jobs:
     needs: test
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      # .cargo/config.toml builds the C runtime into sycros.exe
       - run: cargo build --release
       - shell: pwsh
         run: |
           New-Item -ItemType Directory -Force pkg/sycrOS, dist | Out-Null
           Copy-Item target/release/sycros.exe, README.md, packaging/windows/Start-sycrOS.cmd pkg/sycrOS/
           Compress-Archive -Path pkg/sycrOS -DestinationPath dist/sycros-windows-x86_64.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sycros-windows
           path: dist/*
@@ -58,14 +60,15 @@ jobs:
           - { target: aarch64-apple-darwin, name: apple-silicon }
           - { target: x86_64-apple-darwin, name: intel }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: rustup target add ${{ matrix.target }}
       - run: cargo build --release --target ${{ matrix.target }}
       - run: |
           mkdir -p pkg/sycrOS dist
           cp target/${{ matrix.target }}/release/sycros README.md packaging/macos/Start-sycrOS.command pkg/sycrOS/
+          codesign --verify --verbose pkg/sycrOS/sycros
           cd pkg && zip -qr ../dist/sycros-macos-${{ matrix.name }}.zip sycrOS
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sycros-macos-${{ matrix.name }}
           path: dist/*
@@ -73,12 +76,12 @@ jobs:
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [linux, windows, macos]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*

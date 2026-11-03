@@ -16,7 +16,8 @@ for Windows/macOS from anywhere stays easy. Downloads go through the system `cur
 - `hosts.rs` - all OS-specific commands (lsblk/udisksctl, diskutil/hdiutil, PowerShell)
 - `main.rs` - clap CLI (`run_cmd`); no command = `menu.rs` (dialoguer menu, reuses `run_cmd`).
 - `tests/` - integration tests; `tests/common` builds fake Mac images.
-- `packaging/` - `linux/build-deb.sh` (.deb + .desktop), Windows/macOS double-click launchers.
+- `packaging/` - `linux/build-deb.sh` (.deb + .desktop, static musl build), Windows/macOS double-click launchers.
+  `.cargo/config.toml` builds the C runtime into the Windows .exe (no VCRUNTIME140.dll).
   `.github/workflows/build.yml` builds all packages; tag `v*` publishes a Release.
 - `python-old/` - first Python version, reference only.
 
@@ -25,6 +26,8 @@ for Windows/macOS from anywhere stays easy. Downloads go through the system `cur
   Also `cargo clippy --target x86_64-pc-windows-gnu` and `--target aarch64-apple-darwin`
   (rustup targets are installed) so Windows/macOS code still compiles.
 - Menu changes: test by driving it through `script -qfc` with key presses (see git history / skill).
+- Packages must run on any machine: Linux = musl static (check `file` says static), Windows .exe must
+  not import VCRUNTIME140.dll (check `objdump -p`), macOS binaries must pass `codesign --verify` (CI does).
 - Never write to a real disk in tests; use image files (sparse) only.
 - Windows and macOS host code is compile-checked only, not run on real machines. Say so when reporting.
 - Owner reads plain English: no jargon in messages, README or CLI output.

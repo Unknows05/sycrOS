@@ -3,12 +3,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
-ARCH=$(dpkg --print-architecture)
-cargo build --release
+# Self-contained (static) program: runs on any 64-bit Linux, old or new.
+TARGET=${TARGET:-x86_64-unknown-linux-musl}
+ARCH=amd64
+rustup target add "$TARGET" >/dev/null 2>&1 || true
+cargo build --release --target "$TARGET"
 ROOT=$(mktemp -d)
 chmod 755 "$ROOT"
 trap 'rm -rf "$ROOT"' EXIT
-install -Dm755 target/release/sycros "$ROOT/usr/bin/sycros"
+install -Dm755 "target/$TARGET/release/sycros" "$ROOT/usr/bin/sycros"
 install -Dm644 README.md "$ROOT/usr/share/doc/sycros/README.md"
 install -Dm644 packaging/linux/sycros.desktop "$ROOT/usr/share/applications/sycros.desktop"
 mkdir -p "$ROOT/DEBIAN"

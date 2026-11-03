@@ -58,10 +58,18 @@ Download from the GitHub **Releases** page (or *Actions* → *Build sycros* → 
 | System | File | How to start |
 |---|---|---|
 | Ubuntu / Debian | `sycros_<version>_amd64.deb` | `sudo apt install ./sycros_*.deb`, then `sudo sycros` (or "sycrOS" in the app list) |
-| Other Linux | `sycros-linux-x86_64.tar.gz` | unpack, then `sudo ./sycros` |
+| Any other 64-bit Linux | `sycros-linux-x86_64.tar.gz` | unpack, then `sudo ./sycros` |
 | Windows 10/11 | `sycros-windows-x86_64.zip` | unzip, double-click **Start-sycrOS.cmd** (asks for admin) |
 | Mac (M1–M4) | `sycros-macos-apple-silicon.zip` | unzip, double-click **Start-sycrOS.command** |
 | Intel Mac | `sycros-macos-intel.zip` | same |
+
+The Linux program is self-contained (works on old and new distributions). The Windows
+program needs nothing extra installed.
+
+**Mac, first time only:** the program is not signed by Apple, so macOS says it is from an
+"unidentified developer". Right-click **Start-sycrOS.command** → **Open** → **Open**.
+After that, a normal double-click works. (If macOS still refuses: System Settings →
+Privacy & Security → scroll down → **Open Anyway**.)
 
 **Or build it yourself** (needs [Rust](https://rustup.rs)):
 
@@ -90,6 +98,14 @@ Run `sycros` with nothing after it and you get a menu (arrow keys + Enter, Esc =
   Show all disks
   Quit
 ```
+
+**Choosing the macOS space:** it is fixed when you prepare the stick. Changing it later means
+erasing the stick again. One full macOS installer needs about 18G, two need about 34G, and a
+Recovery image about 2G. If you type 0, sycrOS asks you to confirm, because you then cannot
+add macOS images to that stick.
+
+When you run it with `sudo` on Linux, the stick is opened for *your* user, so you can also
+drag ISO files onto it with the Files app.
 
 It lists only USB/SD sticks to choose from. You can drag files from your file manager into
 the terminal window to add them.

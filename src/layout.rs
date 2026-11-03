@@ -290,11 +290,21 @@ pub fn add_mac(disk: &mut Disk, image: &str, name: Option<&str>, workdir: Option
     log(format!("  found {} volume '{}' ({}), {}", vol.fs.label(), vol.label, vol.kind().label(), human(vol.length)));
 
     let first = g.find_space(need, p2.last + 1, ALIGN).ok_or_else(|| {
-        format!(
-            "not enough macOS space: need {}, biggest free gap is {}. Remove a slot or re-init with a bigger --mac-space.",
-            human(need * SECTOR),
-            human(mac_free(&g))
-        )
+        let total_mac = (g.last_usable().saturating_sub(p2.last)) * SECTOR;
+        if total_mac < MIB {
+            format!(
+                "This stick has no macOS space (it was prepared with macOS space 0).\n  \
+                 Prepare it again and choose macOS space of at least {} (this erases the stick).",
+                human(need * SECTOR)
+            )
+        } else {
+            format!(
+                "Not enough macOS space left: this image needs {}, the biggest free part is {}.\n  \
+                 Remove a macOS section, or prepare the stick again with more macOS space (this erases it).",
+                human(need * SECTOR),
+                human(mac_free(&g))
+            )
+        }
     })?;
     let part = Partition::new(vol.fs.gpt_type(), first, first + need - 1, 0, &label);
 

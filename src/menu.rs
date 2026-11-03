@@ -130,13 +130,32 @@ fn ask_size(prompt: &str, default: &str) -> Result<u64> {
     }
 }
 
-const MAC_SPACE_HELP: &str =
-    "Space for macOS images (full installer about 16G each, Recovery about 2G, 0 = no macOS)";
+const MAC_SPACE_HELP: &str = "Space for macOS images (0 = no macOS)";
 
 fn prepare_stick() -> Result<()> {
     let (disk, internal) = pick_disk("Which USB stick? (it will be ERASED)", true)?;
-    let mac_space = ask_size(MAC_SPACE_HELP, "0")?;
+    let mac_space = ask_mac_space()?;
     run_cmd(Cmd::Init { disk, mac_space, size: None, label: "sycrOS".into(), yes: false, internal })
+}
+
+/// Ask for the macOS space. 0 is allowed, but only after a clear warning,
+/// because the size can only be changed later by erasing the stick again.
+fn ask_mac_space() -> Result<u64> {
+    println!("\n  The macOS space is fixed now. To change it later you must erase the stick again.");
+    println!("  Examples: one full installer 18G, two installers 34G, Recovery images about 2G each.");
+    loop {
+        let v = ask_size(MAC_SPACE_HELP, "34G")?;
+        if v > 0 {
+            return Ok(v);
+        }
+        let sure = Confirm::with_theme(&theme())
+            .with_prompt("No macOS space: you can NOT add macOS images to this stick later. Continue without macOS?")
+            .default(false)
+            .interact()?;
+        if sure {
+            return Ok(0);
+        }
+    }
 }
 
 fn build_image() -> Result<()> {
@@ -144,8 +163,8 @@ fn build_image() -> Result<()> {
         .with_prompt("Image file to create")
         .default("sycros-stick.img".into())
         .interact_text()?;
-    let size = ask_size("Size of the image (same as or smaller than your USB stick)", "16G")?;
-    let mac_space = ask_size(MAC_SPACE_HELP, "0")?;
+    let size = ask_size("Size of the image (same as or smaller than your USB stick)", "64G")?;
+    let mac_space = ask_mac_space()?;
     run_cmd(Cmd::Init { disk: clean_path(&path), mac_space, size: Some(size), label: "sycrOS".into(), yes: false, internal: false })
 }
 

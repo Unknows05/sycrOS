@@ -254,7 +254,7 @@ fn full_flow_on_image() {
     {
         let mut d = layout::Disk::open(&img, None, true, false).unwrap();
         let e = layout::add_mac(&mut d, &big, None, None, false).unwrap_err();
-        assert!(e.to_string().contains("not enough macOS space"));
+        assert!(e.to_string().contains("Not enough macOS space left"));
     }
     assert_eq!(sgdisk_ok(&img).as_array().unwrap().len(), 4);
 
@@ -265,4 +265,25 @@ fn full_flow_on_image() {
     }
     let parts = sgdisk_ok(&img);
     assert!(parts.as_array().unwrap().iter().any(|p| p["name"] == "Recovery again"));
+}
+
+#[test]
+fn clear_message_when_stick_has_no_mac_space() {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+    let Ok(eng) = engine::get_engine(false, std::env::var("SYCROS_TARBALL").ok().as_deref(), true) else {
+        eprintln!("skipped: boot engine not available");
+        return;
+    };
+    let t = TempDir::new("nomac");
+    let img = t.0.join("stick.img").to_string_lossy().into_owned();
+    {
+        let mut d = layout::Disk::open(&img, Some(512 << 20), true, false).unwrap();
+        layout::init(&mut d, &eng, 0, "sycrOS", false).unwrap();
+    }
+    let iso = t.file("Sequoia.iso", &hfs_volume("Install macOS Sequoia", 1024));
+    let mut d = layout::Disk::open(&img, None, true, false).unwrap();
+    let e = layout::add_mac(&mut d, &iso, None, None, false).unwrap_err().to_string();
+    assert!(e.contains("no macOS space") && e.contains("Prepare it again"), "{e}");
 }

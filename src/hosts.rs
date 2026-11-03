@@ -374,13 +374,66 @@ pub fn format_exfat_image(engine: &Engine, image: &str, offset: u64, length: u64
 // ---------------------------------------------------------------------------
 // mounting the data partition (to copy ISO files)
 // ---------------------------------------------------------------------------
+/// When running as root through sudo: the real user's (name, uid, gid).
+fn sudo_user() -> Option<(String, u32, u32)> {
+    if !IS_LINUX || !is_admin() {
+        return None;
+    }
+    let name = std::env::var("SUDO_USER").ok().filter(|n| !n.is_empty() && n != "root")?;
+    let uid = std::env::var("SUDO_UID").ok()?.parse().ok()?;
+    let gid = std::env::var("SUDO_GID").ok()?.parse().ok()?;
+    Some((name, uid, gid))
+}
+
+fn owned_by_root(path: &str) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(path).map(|m| m.uid() == 0).unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        false
+    }
+}
+
 /// A folder where partition `n` is mounted (mounting it if needed).
+/// On Linux under sudo it is mounted for the real user, so the Files app can open it.
 pub fn mount_data(disk: &DiskInfo, n: usize) -> Result<PathBuf> {
     if IS_LINUX {
         let p = part_path(disk, n);
         wait_for(&p)?;
-        if let Some(mp) = run(&["lsblk", "-no", "MOUNTPOINT", &p], false)?.lines().next().filter(|l| !l.trim().is_empty()) {
-            return Ok(PathBuf::from(mp.trim()));
+        let user = sudo_user();
+        let current = run(&["lsblk", "-no", "MOUNTPOINT", &p], false)?
+            .lines()
+            .next()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty());
+        if let Some(mp) = current {
+            // Mounted by root (e.g. by an earlier `sudo sycros`)? Then the owner's file
+            // manager cannot open it: remount it for the user who ran sudo.
+            if user.is_some() && owned_by_root(&mp) {
+                let _ = run(&["umount", &p], false);
+            } else {
+                return Ok(PathBuf::from(mp));
+            }
+        }
+        if let Some((name, uid, gid)) = user {
+            // 1) let the desktop mount it as the real user (shows up in the Files app)
+            if which("runuser").is_some() && which("udisksctl").is_some() {
+                let out = run(&["runuser", "-u", &name, "--", "udisksctl", "mount", "--no-user-interaction", "-b", &p], false)?;
+                if let Some(i) = out.find(" at ") {
+                    return Ok(PathBuf::from(out[i + 4..].trim().trim_end_matches('.')));
+                }
+            }
+            // 2) mount it ourselves, owned by the real user
+            let label = run(&["lsblk", "-no", "LABEL", &p], false)?.trim().to_string();
+            let mnt = PathBuf::from(format!("/media/{name}/{}", if label.is_empty() { "sycrOS" } else { &label }));
+            std::fs::create_dir_all(&mnt)?;
+            let opts = format!("uid={uid},gid={gid},umask=0022");
+            run(&["mount", "-o", &opts, &p, &mnt.to_string_lossy()], true)?;
+            return Ok(mnt);
         }
         if which("udisksctl").is_some() {
             let out = run(&["udisksctl", "mount", "--no-user-interaction", "-b", &p], false)?;
