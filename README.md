@@ -53,15 +53,39 @@ Notes:
 
 ## Install
 
-Download from the GitHub **Releases** page (or *Actions* → *Build sycros* → *Artifacts*):
+### Easiest: one line
 
-| System | File | How to start |
+**Linux or Mac** (open a terminal):
+```bash
+curl -fsSL https://raw.githubusercontent.com/Unknows05/sycrOS/main/install.sh | sh
+sudo sycros
+```
+
+**Windows 10/11** (open PowerShell):
+```powershell
+irm https://raw.githubusercontent.com/Unknows05/sycrOS/main/install.ps1 | iex
+```
+Then start **sycrOS** from the Start menu (it asks for admin rights).
+
+### Or download a file yourself
+
+All files: **https://github.com/Unknows05/sycrOS/releases/latest**
+
+| System | Download | How to start |
 |---|---|---|
-| Ubuntu / Debian | `sycros_<version>_amd64.deb` | `sudo apt install ./sycros_*.deb`, then `sudo sycros` (or "sycrOS" in the app list) |
-| Any other 64-bit Linux | `sycros-linux-x86_64.tar.gz` | unpack, then `sudo ./sycros` |
-| Windows 10/11 | `sycros-windows-x86_64.zip` | unzip, double-click **Start-sycrOS.cmd** (asks for admin) |
-| Mac (M1–M4) | `sycros-macos-apple-silicon.zip` | unzip, double-click **Start-sycrOS.command** |
-| Intel Mac | `sycros-macos-intel.zip` | same |
+| Ubuntu / Debian / Mint | [sycros-linux-amd64.deb](https://github.com/Unknows05/sycrOS/releases/latest/download/sycros-linux-amd64.deb) | see below |
+| Any other 64-bit Linux | [sycros-linux-amd64.tar.gz](https://github.com/Unknows05/sycrOS/releases/latest/download/sycros-linux-amd64.tar.gz) | unpack, then `sudo ./sycros/sycros` |
+| Windows 10/11 | [sycros-windows-x64.zip](https://github.com/Unknows05/sycrOS/releases/latest/download/sycros-windows-x64.zip) | unzip, double-click **Start-sycrOS.cmd** (asks for admin) |
+| Mac with Apple chip (M1–M4) | [sycros-macos-apple-silicon.zip](https://github.com/Unknows05/sycrOS/releases/latest/download/sycros-macos-apple-silicon.zip) | unzip, double-click **Start-sycrOS.command** |
+| Mac with Intel chip | [sycros-macos-intel.zip](https://github.com/Unknows05/sycrOS/releases/latest/download/sycros-macos-intel.zip) | same |
+
+Ubuntu / Debian / Mint from the terminal:
+```bash
+cd /tmp
+wget https://github.com/Unknows05/sycrOS/releases/latest/download/sycros-linux-amd64.deb
+sudo apt install ./sycros-linux-amd64.deb
+sudo sycros
+```
 
 The Linux program is self-contained (works on old and new distributions). The Windows
 program needs nothing extra installed.
@@ -69,13 +93,17 @@ program needs nothing extra installed.
 **Mac, first time only:** the program is not signed by Apple, so macOS says it is from an
 "unidentified developer". Right-click **Start-sycrOS.command** → **Open** → **Open**.
 After that, a normal double-click works. (If macOS still refuses: System Settings →
-Privacy & Security → scroll down → **Open Anyway**.)
+Privacy & Security → scroll down → **Open Anyway**.) The one-line installer avoids this.
 
-**Or build it yourself** (needs [Rust](https://rustup.rs)):
+**Update:** run the same install line or download again; it replaces the old version.
 
+### Or build it yourself
+
+Needs [Rust](https://rustup.rs):
 ```bash
+git clone https://github.com/Unknows05/sycrOS && cd sycrOS
 cargo build --release                 # program: target/release/sycros
-packaging/linux/build-deb.sh          # Debian/Ubuntu package in dist/
+packaging/linux/build-deb.sh          # Debian/Ubuntu package: dist/sycros-linux-amd64.deb
 ```
 
 The first run downloads the Ventoy 1.1.18 boot files (~20 MB, with `curl`) and checks them.
@@ -178,11 +206,13 @@ so the Mac firmware treats it like a stick made with `createinstallmedia`.
 - Disks that hold your running system are refused. Internal disks need `--internal`.
 - Removing a macOS section clears its first megabyte so no system finds stale data.
 
-## Limits (v0.1)
+## Limits
 
-- Tested so far: image files on Linux, with checks against the official partition tools
-  (`sgdisk -v`) and byte-for-byte checks against Ventoy's own install script.
-  Not yet tested: real USB sticks, real Macs, and the Windows/macOS host paths.
+- Tested so far: image files on Linux (checked with `sgdisk -v` and byte for byte against
+  Ventoy), a real macOS image read correctly (Sequoia 15.8.1 from mkmaciso), and every push
+  runs the program on real Linux, Windows and Mac machines on GitHub. On the Mac it builds a
+  stick image with real Apple-made DMGs.
+  Not yet confirmed: booting a real stick on a real PC and a real Mac.
 - No "upgrade boot engine in place" yet. To move to a newer Ventoy, re-run `init` (this erases the stick).
 - 4K-sector "native" disks are not supported (normal USB sticks use 512-byte sectors).
 
@@ -196,7 +226,6 @@ The tests build small fake macOS volumes (HFS+, APFS, GPT, Apple Partition Map,
 compressed DMG with zlib + LZFSE), so no Mac and no root are needed. The full-stick test
 builds a real image and checks it with `sgdisk` and against Ventoy's own files, byte for byte.
 
-The first Python version is kept in `python-old/` for reference. It can be deleted.
 
 ## Credits / license
 

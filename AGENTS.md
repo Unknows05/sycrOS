@@ -16,10 +16,10 @@ for Windows/macOS from anywhere stays easy. Downloads go through the system `cur
 - `hosts.rs` - all OS-specific commands (lsblk/udisksctl, diskutil/hdiutil, PowerShell)
 - `main.rs` - clap CLI (`run_cmd`); no command = `menu.rs` (dialoguer menu, reuses `run_cmd`).
 - `tests/` - integration tests; `tests/common` builds fake Mac images.
+- `install.sh` / `install.ps1` - one-line installers (download releases/latest; file names have no version).
 - `packaging/` - `linux/build-deb.sh` (.deb + .desktop, static musl build), Windows/macOS double-click launchers.
   `.cargo/config.toml` builds the C runtime into the Windows .exe (no VCRUNTIME140.dll).
   `.github/workflows/build.yml` builds all packages; tag `v*` publishes a Release.
-- `python-old/` - first Python version, reference only.
 
 ## Rules
 - Before saying done: `cargo clippy --all-targets` clean and `cargo test` green.

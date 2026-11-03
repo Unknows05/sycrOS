@@ -2,6 +2,9 @@ name: Build sycros
 
 # Every push: check + test + build packages (download them under "Artifacts").
 # Push a tag like v0.2.1: the same packages are also published as a GitHub Release.
+# File names never contain the version, so
+#   https://github.com/Unknows05/sycrOS/releases/latest/download/<file>
+# always gives the newest one (README and install scripts rely on this).
 on:
   push:
   pull_request:
@@ -26,9 +29,15 @@ jobs:
       - uses: actions/checkout@v7
       # static program (musl): runs on any 64-bit Linux
       - run: packaging/linux/build-deb.sh
+      - name: Check the program is self-contained and runs
+        run: |
+          B=target/x86_64-unknown-linux-musl/release/sycros
+          file $B | grep -q 'static' || { echo "not a static program"; exit 1; }
+          $B --version
+          $B disks
       - run: |
           mkdir -p pkg/sycros && cp target/x86_64-unknown-linux-musl/release/sycros README.md pkg/sycros/
-          tar -C pkg -czf dist/sycros-linux-x86_64.tar.gz sycros
+          tar -C pkg -czf dist/sycros-linux-amd64.tar.gz sycros
       - uses: actions/upload-artifact@v7
         with:
           name: sycros-linux
@@ -41,11 +50,21 @@ jobs:
       - uses: actions/checkout@v7
       # .cargo/config.toml builds the C runtime into sycros.exe
       - run: cargo build --release
+      - name: Check sycros.exe needs no extra runtime, and runs on Windows
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $dumpbin = & $vswhere -latest -find "**\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          $deps = & $dumpbin /dependents target\release\sycros.exe | Out-String
+          Write-Output $deps
+          if ($deps -match 'VCRUNTIME') { throw "sycros.exe still needs VCRUNTIME140.dll" }
+          target\release\sycros.exe --version
+          target\release\sycros.exe disks
       - shell: pwsh
         run: |
           New-Item -ItemType Directory -Force pkg/sycrOS, dist | Out-Null
           Copy-Item target/release/sycros.exe, README.md, packaging/windows/Start-sycrOS.cmd pkg/sycrOS/
-          Compress-Archive -Path pkg/sycrOS -DestinationPath dist/sycros-windows-x86_64.zip
+          Compress-Archive -Path pkg/sycrOS -DestinationPath dist/sycros-windows-x64.zip
       - uses: actions/upload-artifact@v7
         with:
           name: sycros-windows
@@ -53,22 +72,41 @@ jobs:
 
   macos:
     needs: test
-    runs-on: macos-latest
+    runs-on: macos-latest   # Apple silicon machine
     strategy:
       matrix:
         include:
-          - { target: aarch64-apple-darwin, name: apple-silicon }
-          - { target: x86_64-apple-darwin, name: intel }
+          - { target: aarch64-apple-darwin, name: apple-silicon, run: true }
+          - { target: x86_64-apple-darwin, name: intel, run: false }
     steps:
       - uses: actions/checkout@v7
       - run: rustup target add ${{ matrix.target }}
       - run: cargo build --release --target ${{ matrix.target }}
+      - name: Sign (ad-hoc) and check the program
+        run: |
+          B=target/${{ matrix.target }}/release/sycros
+          codesign --force --sign - $B
+          codesign --verify --verbose $B
+          vtool -show-build $B
+      - name: Real macOS test - build a stick image and add a real Apple DMG
+        if: matrix.run
+        run: |
+          B=$PWD/target/${{ matrix.target }}/release/sycros
+          $B --version
+          $B disks
+          cd "$RUNNER_TEMP"
+          # real installer-like volumes made by Apple's own tool, zlib + LZFSE compressed
+          hdiutil create -quiet -size 60m -fs HFS+ -volname "Install macOS Test" -format UDZO zlib.dmg
+          hdiutil create -quiet -size 40m -fs HFS+ -volname "macOS Base System" -format ULFO lzfse.dmg
+          $B inspect zlib.dmg lzfse.dmg
+          $B init stick.img --size 1G --mac-space 200M --yes
+          $B add stick.img zlib.dmg lzfse.dmg
+          $B status stick.img
+          $B status stick.img | grep -q "Install macOS Test"
+          $B status stick.img | grep -q "macOS Base System"
       - run: |
           mkdir -p pkg/sycrOS dist
           cp target/${{ matrix.target }}/release/sycros README.md packaging/macos/Start-sycrOS.command pkg/sycrOS/
-          # ad-hoc signature (Apple silicon requires one; Intel gets it too), then check it
-          codesign --force --sign - pkg/sycrOS/sycros
-          codesign --verify --verbose pkg/sycrOS/sycros
           cd pkg && zip -qr ../dist/sycros-macos-${{ matrix.name }}.zip sycrOS
       - uses: actions/upload-artifact@v7
         with:
@@ -80,10 +118,33 @@ jobs:
     needs: [linux, windows, macos]
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
+      - run: cp install.sh install.ps1 dist/
       - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
+
+  # After a release: install it the way a user would, on fresh machines.
+  try-installers:
+    needs: release
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - if: runner.os != 'Windows'
+        run: |
+          sh install.sh
+          sycros --version
+          sycros disks
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./install.ps1
+          & "$env:LOCALAPPDATA\sycrOS\sycros.exe" --version
+          & "$env:LOCALAPPDATA\sycrOS\sycros.exe" disks

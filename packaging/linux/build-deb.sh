@@ -30,6 +30,6 @@ Description: one USB stick for Windows, Linux and macOS installers
  as separate sections for the Mac boot menu. Run "sudo sycros" for the menu.
 CTRL
 mkdir -p dist
-OUT="dist/sycros_${VERSION}_${ARCH}.deb"
+OUT="dist/sycros-linux-${ARCH}.deb"   # fixed name: releases/latest/download/ links keep working
 fakeroot dpkg-deb --build --root-owner-group "$ROOT" "$OUT" >/dev/null
 echo "$OUT"
