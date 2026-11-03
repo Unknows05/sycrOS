@@ -66,6 +66,8 @@ jobs:
       - run: |
           mkdir -p pkg/sycrOS dist
           cp target/${{ matrix.target }}/release/sycros README.md packaging/macos/Start-sycrOS.command pkg/sycrOS/
+          # ad-hoc signature (Apple silicon requires one; Intel gets it too), then check it
+          codesign --force --sign - pkg/sycrOS/sycros
           codesign --verify --verbose pkg/sycrOS/sycros
           cd pkg && zip -qr ../dist/sycros-macos-${{ matrix.name }}.zip sycrOS
       - uses: actions/upload-artifact@v7
