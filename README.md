@@ -2,15 +2,12 @@
 
 One USB stick for **Windows, Linux and macOS** installers.
 
-- Copy Windows / Linux ISO files onto the stick, then pick one from a boot menu (like Ventoy).
+- Copy Windows / Linux ISO files onto the stick, then pick one from a boot menu.
 - Add macOS **.dmg** or **.iso** images (installer or Recovery). Each one gets its own
   section on the stick and shows up in the Mac's own boot menu (hold **Option**).
 - The same stick works on PCs, Intel Macs and Apple silicon Macs. Each device shows the
   systems it can start.
 - Runs on **Linux, macOS and Windows**. One small program (written in Rust), nothing else to install.
-
-Ideas taken from [Ventoy](https://github.com/ventoy/Ventoy) (multi-boot USB) and
-[macos-iso-builder](https://github.com/LongQT-sea/macos-iso-builder) (macOS images without a Mac).
 
 ---
 
@@ -42,15 +39,16 @@ Notes:
 └──────────┴──────────────────────────────┴────────┴──────────────┴──────────────┴───────┘
 ```
 
-- Partitions 1 and 2 match Ventoy's layout exactly, so Ventoy's proven boot engine
-  (downloaded from Ventoy's official release, SHA-256 checked) starts your ISO files.
+- Partition 2 holds the boot files, which start your ISO files. They are downloaded on first use
+  and checked by SHA-256 (see Credits).
   This includes BIOS, UEFI and Secure Boot support.
 - The **macOS space** is reserved when you prepare the stick (`--mac-space`). Each macOS image
   you add becomes its own partition there. A full installer needs about 14–18 GB,
   Recovery about 1–3 GB.
-- Partition 2 is named `sycrOS-boot`. On Linux and Mac you may still see a drive labelled
-  **VTOYEFI**: that is its label, which Ventoy's boot program requires, or it refuses to start.
-  Do not change or format it, and do not put files on it.
+- Partition 2 is named `sycrOS-boot`. Do not change or format it, and do not put files on it.
+- A few names belong to the boot program and must stay, or it refuses to start: the drive label
+  **VTOYEFI** you may see on Linux and Mac, the `ventoy` folder in the ISO part, and the Ventoy
+  version text on the boot screen.
 - macOS sees the ISO partition as a normal exFAT drive, so you can copy ISOs from a Mac too.
   The `._` files macOS leaves behind are hidden from the boot menu.
 
@@ -127,8 +125,8 @@ cargo build --release                 # program: target/release/sycros
 packaging/linux/build-deb.sh          # Debian/Ubuntu package: dist/sycros-linux-amd64.deb
 ```
 
-The first run downloads the Ventoy 1.1.18 boot files (~20 MB, with `curl`) and checks them.
-Offline? Download `ventoy-1.1.18-linux.tar.gz` from Ventoy's release page and run
+The first run downloads the boot files (~20 MB, with `curl`) and checks them.
+Offline? Download [`ventoy-1.1.18-linux.tar.gz`](https://github.com/ventoy/Ventoy/releases/tag/v1.1.18) and run
 `sycros engine --tarball <file>`.
 
 ## The app
@@ -158,8 +156,9 @@ Enter, Esc = back):
 
 In a very small or basic terminal, or with `sycros --simple`, you get the plain menu instead.
 
-**Choosing the macOS space:** it is fixed when you prepare the stick. Changing it later means
-erasing the stick again. One full macOS installer needs about 18G, two need about 34G, and a
+**Choosing the sizes:** you type the macOS space, and the ISO part gets the rest. The app shows the
+split as you type. It is fixed when you prepare the stick, and changing it means erasing the stick
+again. One full macOS installer needs about 18G, two need about 34G, and a
 Recovery image about 2G. If you type 0, sycrOS asks you to confirm, because you then cannot
 add macOS images to that stick.
 
@@ -250,7 +249,7 @@ so the Mac firmware treats it like a stick made with `createinstallmedia`.
 ## Limits
 
 - Tested so far:
-  - Stick images on Linux, checked with `sgdisk -v` and byte for byte against Ventoy's files.
+  - Stick images on Linux, checked with `sgdisk -v` and byte for byte against the boot files.
   - Real Sequoia 15.8.1 and Mojave 10.14.6 images from mkmaciso: added to a stick image, and
     Linux opens the resulting macOS sections.
   - Every push runs the program on GitHub's virtual Linux, Windows and Apple silicon Mac
@@ -261,7 +260,7 @@ so the Mac firmware treats it like a stick made with `createinstallmedia`.
   - Writing to a real USB stick from Windows or macOS.
   - The Intel Mac program has been built but never run.
   - **Safely remove** on Windows and macOS.
-- No "upgrade boot engine in place" yet. To move to a newer Ventoy, re-run `init` (this erases the stick).
+- The boot files cannot be updated in place yet. To get newer ones, prepare the stick again (this erases it).
 - 4K-sector "native" disks are not supported (normal USB sticks use 512-byte sectors).
 
 ## Tests
@@ -272,11 +271,12 @@ cargo test
 
 The tests build small fake macOS volumes (HFS+, APFS, GPT, Apple Partition Map,
 compressed DMG with zlib + LZFSE), so no Mac and no root are needed. The full-stick test
-builds a real image and checks it with `sgdisk` and against Ventoy's own files, byte for byte.
+builds a real image and checks it with `sgdisk` and against the boot files, byte for byte.
 
 
 ## Credits / license
 
-- Boot engine: [Ventoy](https://www.ventoy.net) by longpanda, GPLv3. sycrOS downloads the
-  official release at run time and does not change its boot files.
+- Inspired by [Ventoy](https://www.ventoy.net) by longpanda (GPLv3). sycrOS rewrites the disk setup
+  in Rust, but the boot program that starts your ISO files is Ventoy's own, downloaded unchanged
+  from its official release. It has not been rebuilt.
 - Idea for macOS images: [macos-iso-builder / mkmaciso](https://github.com/LongQT-sea/macos-iso-builder) by LongQT-sea.

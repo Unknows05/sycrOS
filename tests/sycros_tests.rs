@@ -209,7 +209,7 @@ fn full_flow_on_image() {
         layout::init(&mut d, &eng, 200 * layout::MIB, "sycrOS", false).unwrap();
     }
     let parts = sgdisk_ok(&img);
-    assert_eq!(parts[0]["name"], "Ventoy");
+    assert_eq!(parts[0]["name"], "sycrOS");
     assert_eq!(parts[1]["name"], "sycrOS-boot");
     assert_eq!(parts[1]["size"], 65536);
     assert_eq!(parts[1]["start"].as_u64().unwrap() % 8, 0);
@@ -379,12 +379,14 @@ fn old_boot_partition_name_still_works_and_is_renamed() {
     let iso = t.file("a.iso", &hfs_volume("Install macOS Test", 512));
     let mut d = layout::Disk::open(&img, Some(512 << 20), true, false).unwrap();
     let mut g = layout::init(&mut d, &eng, 32 * layout::MIB, "sycrOS", false).unwrap();
+    g.slots[0].as_mut().unwrap().name = "Ventoy".into();
     g.slots[1].as_mut().unwrap().name = "VTOYEFI".into();
     g.write(&mut d.raw).unwrap();
     layout::check_layout(&d.read_gpt().unwrap()).unwrap();
     layout::add_mac(&mut d, &iso, None, None, false).unwrap();
     let g = d.read_gpt().unwrap();
     let p2 = g.get(2).unwrap();
+    assert_eq!(g.get(1).unwrap().name, "sycrOS");
     assert_eq!(p2.name, "sycrOS-boot");
     let label = d.raw.read_at(p2.first * 512 + 43, 7).unwrap();
     assert_eq!(label, b"VTOYEFI");

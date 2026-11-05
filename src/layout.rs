@@ -5,7 +5,7 @@
 //! ```text
 //! sector 0         protective MBR + Ventoy boot.img (legacy BIOS boot)
 //! sectors 34-2047  Ventoy core.img (GRUB core for BIOS)
-//! partition 1      "Ventoy"   exFAT  - ISO/WIM/IMG/VHD files (Windows/Linux/Tools)
+//! partition 1      "sycrOS"   exFAT  - ISO/WIM/IMG/VHD files (Windows/Linux/Tools)
 //! partition 2      "sycrOS-boot" 32 MiB (drive label inside: VTOYEFI) - Ventoy UEFI boot files (BIOS+UEFI, Secure Boot shim)
 //! partition 3..N   macOS slots, HFS+ or APFS, one per macOS image (Mac boot menu)
 //! free             room for more macOS slots ("Mac space", chosen at init)
@@ -25,8 +25,9 @@ use std::path::PathBuf;
 
 pub const MIB: u64 = 1 << 20;
 const ALIGN: u64 = 2048; // 1 MiB in sectors
-/// Ventoy's boot code expects these two names.
-const DATA_NAME: &str = "Ventoy";
+const DATA_NAME: &str = "sycrOS";
+/// Name of partition 1 on sticks prepared before v0.3.0.
+const OLD_DATA_NAME: &str = "Ventoy";
 const EFI_NAME: &str = "sycrOS-boot";
 /// Name on sticks prepared before v0.2.3; renamed the next time the stick is changed.
 const OLD_EFI_NAME: &str = "VTOYEFI";
@@ -150,12 +151,17 @@ impl Drop for Disk {
 pub fn check_layout(g: &Gpt) -> Result<(Partition, Partition)> {
     match (g.get(1), g.get(2)) {
         (Some(p1), Some(p2)) if (p2.name == EFI_NAME || p2.name == OLD_EFI_NAME) && p2.sectors() == EFI_PART_SECTORS => Ok((p1.clone(), p2.clone())),
-        _ => Err("this disk is not a sycrOS/Ventoy GPT disk (run: sycros init)".into()),
+        _ => Err("This is not a sycrOS disk (prepare it first).".into()),
     }
 }
 
-/// Older sticks: rename the boot partition in the table (its contents are not touched).
+/// Older sticks: rename partitions 1 and 2 in the table (its contents are not touched).
 fn use_new_name(g: &mut Gpt) {
+    if let Some(Some(p1)) = g.slots.get_mut(0) {
+        if p1.name == OLD_DATA_NAME {
+            p1.name = DATA_NAME.to_string();
+        }
+    }
     if let Some(Some(p2)) = g.slots.get_mut(1) {
         if p2.name == OLD_EFI_NAME {
             p2.name = EFI_NAME.to_string();
@@ -197,7 +203,7 @@ pub fn plan(total_sectors: u64, mac_space: u64) -> Result<(u64, u64, u64)> {
     let need = reserved + EFI_PART_SECTORS + 2048;
     if total_sectors <= need || (total_sectors - need) * SECTOR < MIN_DATA {
         return Err(format!(
-            "disk too small: {} total, {} asked for macOS -> less than {} left for ISO files",
+            "Too much macOS space: this disk is {}, you asked for {}, and at least {} must stay for ISO files.",
             human(total_sectors * SECTOR),
             human(mac_space),
             human(MIN_DATA)
@@ -207,6 +213,13 @@ pub fn plan(total_sectors: u64, mac_space: u64) -> Result<(u64, u64, u64)> {
     let mut p1_count = total_sectors - need;
     p1_count -= p1_count % 8; // keep partition 2 on a 4 KB boundary
     Ok((2048, 2048 + p1_count - 1, 2048 + p1_count))
+}
+
+/// (ISO part bytes, macOS space bytes) for a disk of this size.
+pub fn split(total_sectors: u64, mac_space: u64) -> Result<(u64, u64)> {
+    let (first, last, p2_first) = plan(total_sectors, mac_space)?;
+    let mac = (total_sectors - 34).saturating_sub(p2_first + EFI_PART_SECTORS - 1) * SECTOR;
+    Ok(((last - first + 1) * SECTOR, mac))
 }
 
 pub fn build_mbr(engine: &Engine, total_sectors: u64) -> Result<[u8; 512]> {
@@ -396,7 +409,7 @@ pub fn refresh_menus(disk: &mut Disk) -> Result<Option<PathBuf>> {
 pub fn status(disk: &mut Disk) -> Result<()> {
     let g = disk.read_gpt()?;
     let (p1, p2) = check_layout(&g)?;
-    crate::ui::say(format!("{}  ({})  Ventoy-compatible GPT layout", disk.name, human(disk.raw.size)));
+    crate::ui::say(format!("{}  ({})  sycrOS disk", disk.name, human(disk.raw.size)));
     crate::ui::say(format!("  1  ISO files      {:>10}   (Windows / Linux / Tools folders)", human(p1.size())));
     crate::ui::say(format!("  2  boot files     {:>10}", human(p2.size())));
     for (n, p) in mac_slots(&g) {

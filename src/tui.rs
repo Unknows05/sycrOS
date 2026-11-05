@@ -388,7 +388,12 @@ impl App {
                 }
             }
             Ask::MacSpace => match parse_size(&value) {
-                Ok(v) => self.flow.mac_space = Some(v),
+                Ok(v) => {
+                    if let Some(Err(e)) = self.split_for(v) {
+                        return set_error(self, e);
+                    }
+                    self.flow.mac_space = Some(v);
+                }
                 Err(e) => return set_error(self, e),
             },
             Ask::ImageSize => match parse_size(&value) {
@@ -414,6 +419,15 @@ impl App {
             }
         }
         self.step();
+    }
+
+    /// How the chosen disk or new image would be divided, if its size is known.
+    fn split_for(&self, mac_space: u64) -> Option<std::result::Result<(u64, u64), String>> {
+        let size = self.flow.size.or_else(|| {
+            let id = self.flow.disk.as_deref()?;
+            self.disks.iter().find(|d| d.id == id).map(|d| d.size)
+        })?;
+        Some(layout::split(size / 512, mac_space).map_err(|e| e.to_string()))
     }
 
     fn sure_ok(&mut self, kind: Sure) {
@@ -741,6 +755,37 @@ fn view<'a>(app: &App, width: usize, height: usize) -> (String, Vec<Line<'a>>, &
             let count = value.chars().count();
             let shown: String = value.chars().skip(count.saturating_sub(room)).collect();
             body.push(Line::from(vec![Span::styled("> ", bold()), Span::raw(shown), Span::styled("_", dim())]));
+            // Show the result of the number while it is being typed.
+            if *kind == Ask::MacSpace {
+                match parse_size(value).ok().and_then(|v| app.split_for(v)) {
+                    Some(Ok((iso, mac))) => {
+                        let total = (iso + mac).max(1);
+                        let iso_cells = (iso as u128 * width as u128 / total as u128) as usize;
+                        body.push(Line::raw(""));
+                        body.push(
+                            Line::from(vec![
+                                Span::styled("█".repeat(iso_cells), Style::new().fg(PART_COLORS[0])),
+                                Span::styled("█".repeat(width.saturating_sub(iso_cells)), Style::new().fg(PART_COLORS[1])),
+                            ])
+                            .centered(),
+                        );
+                        body.push(
+                            Line::from(vec![
+                                Span::styled("■ ", Style::new().fg(PART_COLORS[0])),
+                                Span::raw(format!("ISO files {}    ", human(iso))),
+                                Span::styled("■ ", Style::new().fg(PART_COLORS[1])),
+                                Span::raw(format!("macOS {}", human(mac))),
+                            ])
+                            .centered(),
+                        );
+                    }
+                    Some(Err(e)) if error.is_empty() => {
+                        body.push(Line::raw(""));
+                        body.extend(wrap(&e, width).into_iter().map(|l| Line::styled(l, danger())));
+                    }
+                    _ => {}
+                }
+            }
             if !error.is_empty() {
                 body.push(Line::raw(""));
                 body.extend(wrap(error, width).into_iter().map(|l| Line::styled(l, danger())));
@@ -1104,6 +1149,26 @@ mod tests {
         a.key(KeyCode::Enter, false);
         assert!(matches!(a.screen, Screen::Work(_)));
         assert!(matches!(a.pending, Some(Cmd::Init { .. })));
+    }
+
+    #[test]
+    fn macos_space_shows_the_split_while_typing_and_refuses_too_much() {
+        let mut a = app();
+        a.flow = Flow::new(Action::Prepare);
+        a.step();
+        a.key(KeyCode::Enter, false);
+        let text = screen(&a, 80, 24).join("\n");
+        assert!(text.contains("ISO files 23.0 GB") && text.contains("macOS 34.0 GB"), "{text}");
+        for _ in 0..3 {
+            a.key(KeyCode::Backspace, false);
+        }
+        for c in "100G".chars() {
+            a.key(KeyCode::Char(c), false);
+        }
+        let text = screen(&a, 80, 24).join("\n");
+        assert!(text.contains("Too much macOS space"), "{text}");
+        a.key(KeyCode::Enter, false);
+        assert!(matches!(a.screen, Screen::Ask { kind: Ask::MacSpace, .. }), "must stay on this screen");
     }
 
     #[test]

@@ -19,7 +19,7 @@ fn theme() -> ColorfulTheme {
 pub fn run() -> Result<()> {
     println!();
     println!("  sycrOS {}  -  one USB for Windows, Linux and macOS", env!("CARGO_PKG_VERSION"));
-    println!("  (boot engine: Ventoy 1.1.18)   arrows + Enter to choose, Esc to go back");
+    println!("  arrows + Enter to choose, Esc to go back");
     if !hosts::is_admin() {
         let how = if hosts::IS_WIN { "open the terminal as Administrator" } else { "run: sudo sycros" };
         println!("\n  Note: changing a USB stick needs admin rights - {how}.");

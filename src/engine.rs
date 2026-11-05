@@ -11,7 +11,7 @@ use std::fs::{self, File};
 use std::io::{self, BufReader, Read};
 use std::path::{Path, PathBuf};
 
-pub const VENTOY_VERSION: &str = "1.1.18";
+pub const BOOT_FILES_VERSION: &str = "1.1.18";
 const TARBALL: &str = "ventoy-1.1.18-linux.tar.gz";
 const URL: &str = "https://github.com/ventoy/Ventoy/releases/download/v1.1.18/ventoy-1.1.18-linux.tar.gz";
 /// From https://github.com/ventoy/Ventoy/releases/download/v1.1.18/sha256.txt
@@ -60,13 +60,13 @@ fn xz_file(path: &Path) -> Result<Vec<u8>> {
 
 impl Engine {
     pub fn version(&self) -> &'static str {
-        VENTOY_VERSION
+        BOOT_FILES_VERSION
     }
 
     fn file(&self, rel: &str) -> Result<PathBuf> {
         let p = self.folder.join(rel);
         if !p.exists() {
-            return Err(format!("boot engine file missing: {} (run: sycros engine --refresh)", p.display()).into());
+            return Err(format!("boot file missing: {} (run: sycros engine --refresh)", p.display()).into());
         }
         Ok(p)
     }
@@ -148,7 +148,7 @@ pub fn sha256_file(path: &Path) -> io::Result<String> {
 
 /// Return a ready Engine, downloading + verifying it the first time.
 pub fn get_engine(refresh: bool, tarball: Option<&str>, quiet: bool) -> Result<Engine> {
-    let folder = cache_root().join(format!("ventoy-{VENTOY_VERSION}"));
+    let folder = cache_root().join(format!("boot-{BOOT_FILES_VERSION}"));
     let marker = folder.join(".ok");
     if marker.exists() && !refresh {
         return Ok(Engine { folder });
@@ -161,7 +161,7 @@ pub fn get_engine(refresh: bool, tarball: Option<&str>, quiet: bool) -> Result<E
     };
     if tarball.is_none() && (refresh || !tar_path.exists()) {
         if !quiet {
-            crate::ui::say(format!("Downloading boot engine (Ventoy {VENTOY_VERSION}, ~20 MB) ..."));
+            crate::ui::say(format!("Downloading boot files ({BOOT_FILES_VERSION}, ~20 MB) ..."));
         }
         let tmp = tar_path.with_extension("part");
         // curl ships with Linux, macOS and Windows 10+; it keeps sycrOS free of TLS code
@@ -187,7 +187,7 @@ pub fn get_engine(refresh: bool, tarball: Option<&str>, quiet: bool) -> Result<E
     let got = sha256_file(&tar_path)?;
     if got != SHA256 {
         return Err(format!(
-            "boot engine checksum does not match!\n  expected {SHA256}\n  got      {got}\nDelete {} and try again.",
+            "boot files checksum does not match!\n  expected {SHA256}\n  got      {got}\nDelete {} and try again.",
             tar_path.display()
         )
         .into());
@@ -212,12 +212,12 @@ pub fn get_engine(refresh: bool, tarball: Option<&str>, quiet: bool) -> Result<E
     }
     for r in REQUIRED {
         if !folder.join(r).exists() {
-            return Err(format!("boot engine is incomplete, missing {r}").into());
+            return Err(format!("boot files are incomplete, missing {r}").into());
         }
     }
-    fs::write(&marker, VENTOY_VERSION)?;
+    fs::write(&marker, BOOT_FILES_VERSION)?;
     if !quiet {
-        crate::ui::say(format!("Boot engine ready in {}", folder.display()));
+        crate::ui::say(format!("Boot files ready in {}", folder.display()));
     }
     Ok(Engine { folder })
 }

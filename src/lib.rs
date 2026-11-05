@@ -1,7 +1,7 @@
 //! sycrOS - one USB stick for Windows, Linux and macOS installers.
 //!
-//! Windows/Linux ISO files boot through Ventoy's boot engine (partitions 1+2,
-//! byte-compatible with Ventoy). macOS DMG/ISO images become their own HFS+/APFS
+//! Windows/Linux ISO files boot through the boot files on partitions 1+2 (see engine.rs).
+//! macOS DMG/ISO images become their own HFS+/APFS
 //! partitions that the Mac boot menu can start (installer or Recovery).
 
 pub mod engine;

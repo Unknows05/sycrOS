@@ -27,7 +27,7 @@ examples:
 disk names:  Linux /dev/sdb   macOS /dev/disk4   Windows 2 (disk number)";
 
 #[derive(Parser)]
-#[command(name = "sycros", version = concat!(env!("CARGO_PKG_VERSION"), " (Ventoy 1.1.18 boot engine)"),
+#[command(name = "sycros", version = concat!(env!("CARGO_PKG_VERSION"), ""),
           about = "sycrOS - one USB for Windows, Linux and macOS installers.", after_help = EXAMPLES)]
 struct Cli {
     /// With no command: use the simple menu instead of the full-screen app
@@ -42,12 +42,12 @@ struct Cli {
 pub(crate) enum Cmd {
     /// List disks
     Disks,
-    /// Download / check the Ventoy boot files
+    /// Download / check the boot files
     Engine {
         /// Download again
         #[arg(long)]
         refresh: bool,
-        /// Use a local ventoy-*-linux.tar.gz (offline)
+        /// Use a boot files archive you downloaded yourself (offline, see README)
         #[arg(long)]
         tarball: Option<String>,
     },
@@ -213,7 +213,7 @@ pub(crate) fn run_cmd(cmd: Cmd) -> Result<()> {
 
         Cmd::Engine { refresh, tarball } => {
             let e = engine::get_engine(refresh, tarball.as_deref(), false)?;
-            ui::say(format!("Ventoy {} boot files: {}", e.version(), e.folder.display()));
+            ui::say(format!("Boot files {}: {}", e.version(), e.folder.display()));
         }
 
         Cmd::Init { disk, mac_space, size, label, yes, internal } => {
@@ -226,6 +226,9 @@ pub(crate) fn run_cmd(cmd: Cmd) -> Result<()> {
                 confirm(&format!("{disk} exists and will be replaced."), yes)?;
             }
             let mut d = layout::Disk::open(&disk, size, true, internal)?;
+            // Too much macOS space for this disk: say so before anything is erased.
+            let (iso, mac) = layout::split(d.raw.sectors(), mac_space)?;
+            ui::say(format!("Sizes: ISO files {}, macOS {}", human(iso), human(mac)));
             if let Some(info) = &d.info {
                 confirm_erase(
                     &format!(

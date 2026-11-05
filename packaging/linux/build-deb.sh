@@ -26,7 +26,7 @@ Section: utils
 Priority: optional
 Description: one USB stick for Windows, Linux and macOS installers
  sycrOS prepares a USB stick that boots Windows and Linux ISO files
- (using Ventoy's boot engine) and holds macOS installer/Recovery images
+ and holds macOS installer/Recovery images
  as separate sections for the Mac boot menu. Run "sudo sycros" for the menu.
 CTRL
 mkdir -p dist
