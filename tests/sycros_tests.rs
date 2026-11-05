@@ -210,7 +210,7 @@ fn full_flow_on_image() {
     }
     let parts = sgdisk_ok(&img);
     assert_eq!(parts[0]["name"], "Ventoy");
-    assert_eq!(parts[1]["name"], "VTOYEFI");
+    assert_eq!(parts[1]["name"], "sycrOS-boot");
     assert_eq!(parts[1]["size"], 65536);
     assert_eq!(parts[1]["start"].as_u64().unwrap() % 8, 0);
     assert_eq!(parts[1]["attrs"], "GUID:63");
@@ -360,4 +360,32 @@ fn check_after_writing_catches_bad_data() {
     bad[100] = 9;
     fs::write(&copied, bad).unwrap();
     assert!(rawdisk::verify_files(Path::new(&src), &copied, "c").is_err());
+}
+
+/// Sticks prepared before v0.2.3 call partition 2 "VTOYEFI". They must keep working, and get
+/// the new name the next time they change. The drive label inside must stay VTOYEFI
+/// because Ventoy's boot program checks it.
+#[test]
+fn old_boot_partition_name_still_works_and_is_renamed() {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+    let Ok(eng) = engine::get_engine(false, std::env::var("SYCROS_TARBALL").ok().as_deref(), true) else {
+        eprintln!("skipped: boot engine not available");
+        return;
+    };
+    let t = TempDir::new("oldname");
+    let img = t.0.join("stick.img").to_string_lossy().into_owned();
+    let iso = t.file("a.iso", &hfs_volume("Install macOS Test", 512));
+    let mut d = layout::Disk::open(&img, Some(512 << 20), true, false).unwrap();
+    let mut g = layout::init(&mut d, &eng, 32 * layout::MIB, "sycrOS", false).unwrap();
+    g.slots[1].as_mut().unwrap().name = "VTOYEFI".into();
+    g.write(&mut d.raw).unwrap();
+    layout::check_layout(&d.read_gpt().unwrap()).unwrap();
+    layout::add_mac(&mut d, &iso, None, None, false).unwrap();
+    let g = d.read_gpt().unwrap();
+    let p2 = g.get(2).unwrap();
+    assert_eq!(p2.name, "sycrOS-boot");
+    let label = d.raw.read_at(p2.first * 512 + 43, 7).unwrap();
+    assert_eq!(label, b"VTOYEFI");
 }

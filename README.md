@@ -48,6 +48,9 @@ Notes:
 - The **macOS space** is reserved when you prepare the stick (`--mac-space`). Each macOS image
   you add becomes its own partition there. A full installer needs about 14–18 GB,
   Recovery about 1–3 GB.
+- Partition 2 is named `sycrOS-boot`. On Linux and Mac you may still see a drive labelled
+  **VTOYEFI**: that is its label, which Ventoy's boot program requires, or it refuses to start.
+  Do not change or format it, and do not put files on it.
 - macOS sees the ISO partition as a normal exFAT drive, so you can copy ISOs from a Mac too.
   The `._` files macOS leaves behind are hidden from the boot menu.
 
@@ -89,6 +92,17 @@ sudo sycros
 
 The Linux program is self-contained (works on old and new distributions). The Windows
 program needs nothing extra installed.
+
+**Windows step by step:**
+1. Open **PowerShell** and run the install line above.
+2. Open **sycrOS** from the Start menu and click **Yes** on the admin prompt.
+3. **Prepare a USB stick (erases it)** → choose the stick → press Enter for 34G → type `YES`.
+4. **Add files to a stick** → choose the stick → drag your files into the window → Enter.
+5. **Safely remove a stick**, then unplug it.
+
+Windows cannot read Mac sections, so they do not appear in File Explorer, and it may offer to
+format them. **Always click Cancel**: formatting destroys that section. Only the `sycrOS` part
+appears as a normal drive. Building image files is not available on Windows.
 
 **Mac, first time only:** the program is not signed by Apple, so macOS says it is from an
 "unidentified developer". Right-click **Start-sycrOS.command** → **Open** → **Open**.
@@ -218,11 +232,11 @@ so the Mac firmware treats it like a stick made with `createinstallmedia`.
   - Real Sequoia 15.8.1 and Mojave 10.14.6 images from mkmaciso: added to a stick image, and
     Linux opens the resulting macOS sections.
   - Every push runs the program on GitHub's virtual Linux, Windows and Apple silicon Mac
-    machines. The Mac one builds a stick image with Apple-made DMGs. The Windows one only
-    lists disks.
+    machines, including the menu in a real terminal. The Mac one builds a stick image with
+    Apple-made DMGs. The Windows one writes to a virtual disk the same way as to a stick.
 - Not yet confirmed:
   - Starting from a stick on a real PC or a real Mac.
-  - Writing to a USB stick from Windows or macOS.
+  - Writing to a real USB stick from Windows or macOS.
   - The Intel Mac program has been built but never run.
   - **Safely remove** on Windows and macOS.
 - No "upgrade boot engine in place" yet. To move to a newer Ventoy, re-run `init` (this erases the stick).

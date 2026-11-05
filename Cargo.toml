@@ -1,6 +1,6 @@
 [package]
 name = "sycros"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 description = "sycrOS - one USB stick for Windows, Linux and macOS installers"
 license = "GPL-3.0-or-later"
@@ -26,6 +26,9 @@ dialoguer = { version = "0.11", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[dev-dependencies]
+portable-pty = "0.9"
 
 [profile.release]
 opt-level = 3

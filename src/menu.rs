@@ -10,18 +10,7 @@ use sycros::library;
 use sycros::rawdisk::human;
 use sycros::{hosts, layout, Result};
 
-const ACTIONS: &[&str] = &[
-    "Prepare a USB stick (erases it)",
-    "Add files to a stick (ISO, DMG, ...)",
-    "Show what is on a stick",
-    "Remove a macOS section",
-    "Remove a file",
-    "Safely remove a stick",
-    "Check a file (writes nothing)",
-    "Build an image file instead of a stick",
-    "Show all disks",
-    "Quit",
-];
+type Action = fn() -> Result<()>;
 
 fn theme() -> ColorfulTheme {
     ColorfulTheme::default()
@@ -34,30 +23,34 @@ pub fn run() -> Result<()> {
     if !hosts::is_admin() {
         let how = if hosts::IS_WIN { "open the terminal as Administrator" } else { "run: sudo sycros" };
         println!("\n  Note: changing a USB stick needs admin rights - {how}.");
-        println!("  Without it you can still check files and build image files.");
+        println!("  Without it you can still check files{}.", if hosts::IS_WIN { "" } else { " and build image files" });
     }
+    let mut actions: Vec<(&str, Action)> = vec![
+        ("Prepare a USB stick (erases it)", prepare_stick),
+        ("Add files to a stick (ISO, DMG, ...)", add_files),
+        ("Show what is on a stick", show_stick),
+        ("Remove a macOS section", remove_slot),
+        ("Remove a file", remove_file),
+        ("Safely remove a stick", eject_stick),
+        ("Check a file (writes nothing)", check_files),
+    ];
+    if !hosts::IS_WIN {
+        actions.push(("Build an image file instead of a stick", build_image)); // not possible on Windows
+    }
+    actions.push(("Show all disks", || run_cmd(Cmd::Disks)));
+    let labels: Vec<&str> = actions.iter().map(|(label, _)| *label).chain(["Quit"]).collect();
     loop {
         println!();
         let Some(choice) = Select::with_theme(&theme())
             .with_prompt("What do you want to do?")
-            .items(ACTIONS)
+            .items(&labels)
             .default(0)
             .interact_opt()?
         else {
             return Ok(());
         };
-        let result = match choice {
-            0 => prepare_stick(),
-            1 => add_files(),
-            2 => show_stick(),
-            3 => remove_slot(),
-            4 => remove_file(),
-            5 => eject_stick(),
-            6 => check_files(),
-            7 => build_image(),
-            8 => run_cmd(Cmd::Disks),
-            _ => return Ok(()),
-        };
+        let Some((_, action)) = actions.get(choice) else { return Ok(()) };
+        let result = action();
         match result {
             Ok(()) => {}
             Err(e) if e.to_string() == "back" => continue,

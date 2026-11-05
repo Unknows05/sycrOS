@@ -6,7 +6,7 @@
 //! sector 0         protective MBR + Ventoy boot.img (legacy BIOS boot)
 //! sectors 34-2047  Ventoy core.img (GRUB core for BIOS)
 //! partition 1      "Ventoy"   exFAT  - ISO/WIM/IMG/VHD files (Windows/Linux/Tools)
-//! partition 2      "VTOYEFI"  32 MiB - Ventoy UEFI boot files (BIOS+UEFI, Secure Boot shim)
+//! partition 2      "sycrOS-boot" 32 MiB (drive label inside: VTOYEFI) - Ventoy UEFI boot files (BIOS+UEFI, Secure Boot shim)
 //! partition 3..N   macOS slots, HFS+ or APFS, one per macOS image (Mac boot menu)
 //! free             room for more macOS slots ("Mac space", chosen at init)
 //! ```
@@ -27,7 +27,12 @@ pub const MIB: u64 = 1 << 20;
 const ALIGN: u64 = 2048; // 1 MiB in sectors
 /// Ventoy's boot code expects these two names.
 const DATA_NAME: &str = "Ventoy";
-const EFI_NAME: &str = "VTOYEFI";
+const EFI_NAME: &str = "sycrOS-boot";
+/// Name on sticks prepared before v0.2.3; renamed the next time the stick is changed.
+const OLD_EFI_NAME: &str = "VTOYEFI";
+// The FAT drive label INSIDE partition 2 must stay "VTOYEFI": Ventoy's boot program refuses
+// anything else ("NOT a standard Ventoy device"), and it cannot be changed without rebuilding
+// and re-signing that program. Only the partition's name in the GPT is ours to choose.
 const MIN_DATA: u64 = 256 * MIB;
 
 /// A USB disk (by id) or an image file, ready for raw access.
@@ -134,8 +139,17 @@ impl Drop for Disk {
 // ---------------------------------------------------------------------------
 pub fn check_layout(g: &Gpt) -> Result<(Partition, Partition)> {
     match (g.get(1), g.get(2)) {
-        (Some(p1), Some(p2)) if p2.name == EFI_NAME && p2.sectors() == EFI_PART_SECTORS => Ok((p1.clone(), p2.clone())),
+        (Some(p1), Some(p2)) if (p2.name == EFI_NAME || p2.name == OLD_EFI_NAME) && p2.sectors() == EFI_PART_SECTORS => Ok((p1.clone(), p2.clone())),
         _ => Err("this disk is not a sycrOS/Ventoy GPT disk (run: sycros init)".into()),
+    }
+}
+
+/// Older sticks: rename the boot partition in the table (its contents are not touched).
+fn use_new_name(g: &mut Gpt) {
+    if let Some(Some(p2)) = g.slots.get_mut(1) {
+        if p2.name == OLD_EFI_NAME {
+            p2.name = EFI_NAME.to_string();
+        }
     }
 }
 
@@ -320,6 +334,7 @@ pub fn add_mac(disk: &mut Disk, image: &str, name: Option<&str>, workdir: Option
         disk.raw.zero(first * SECTOR + vol.length, tail)?;
     }
     let num = g.add(part, None)?;
+    use_new_name(&mut g);
     g.write(&mut disk.raw)?;
     disk.raw.flush();
     disk.reread();
@@ -341,6 +356,7 @@ pub fn remove_mac(disk: &mut Disk, number: usize, verbose: bool) -> Result<Parti
     }
     let p = g.remove(number)?;
     disk.raw.zero(p.first * SECTOR, MIB.min(p.size()))?; // so no OS finds the old volume
+    use_new_name(&mut g);
     g.write(&mut disk.raw)?;
     disk.raw.flush();
     disk.reread();
