@@ -37,6 +37,7 @@ pub fn run() -> Result<()> {
     if !hosts::IS_WIN {
         actions.push(("Build an image file instead of a stick", build_image)); // not possible on Windows
     }
+    actions.push(("Update sycrOS (if there is a new version)", || run_cmd(Cmd::Update)));
     actions.push(("Show all disks", || run_cmd(Cmd::Disks)));
     let labels: Vec<&str> = actions.iter().map(|(label, _)| *label).chain(["Quit"]).collect();
     loop {

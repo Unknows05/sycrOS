@@ -38,6 +38,7 @@ jobs:
       - run: |
           mkdir -p pkg/sycros && cp target/x86_64-unknown-linux-musl/release/sycros README.md pkg/sycros/
           tar -C pkg -czf dist/sycros-linux-amd64.tar.gz sycros
+          cp target/x86_64-unknown-linux-musl/release/sycros dist/sycros-linux-amd64
       - uses: actions/upload-artifact@v7
         with:
           name: sycros-linux
@@ -62,7 +63,7 @@ jobs:
           target\release\sycros.exe --version
           target\release\sycros.exe disks
       - name: Real Windows test - the app and menu in a real console
-        run: cargo test --release --test menu_pty --test tui_pty
+        run: cargo test --release --test menu_pty --test tui_pty --test update
       - name: Real Windows test - write to a virtual disk like a USB stick
         timeout-minutes: 15
         shell: pwsh
@@ -103,6 +104,7 @@ jobs:
           New-Item -ItemType Directory -Force pkg/sycrOS, dist | Out-Null
           Copy-Item target/release/sycros.exe, README.md, packaging/windows/Start-sycrOS.cmd pkg/sycrOS/
           Compress-Archive -Path pkg/sycrOS -DestinationPath dist/sycros-windows-x64.zip
+          Copy-Item target/release/sycros.exe dist/sycros-windows-x64.exe
       - uses: actions/upload-artifact@v7
         with:
           name: sycros-windows
@@ -122,7 +124,7 @@ jobs:
       - run: cargo build --release --target ${{ matrix.target }}
       - name: Real macOS test - the app and menu in a real terminal
         if: matrix.run
-        run: cargo test --release --test menu_pty --test tui_pty
+        run: cargo test --release --test menu_pty --test tui_pty --test update
       - name: Sign (ad-hoc) and check the program
         run: |
           B=target/${{ matrix.target }}/release/sycros
@@ -153,6 +155,7 @@ jobs:
       - run: |
           mkdir -p pkg/sycrOS dist
           cp target/${{ matrix.target }}/release/sycros README.md packaging/macos/Start-sycrOS.command pkg/sycrOS/
+          cp pkg/sycrOS/sycros dist/sycros-macos-${{ matrix.name }}
           cd pkg && zip -qr ../dist/sycros-macos-${{ matrix.name }}.zip sycrOS
       - uses: actions/upload-artifact@v7
         with:
@@ -170,6 +173,8 @@ jobs:
           path: dist
           merge-multiple: true
       - run: cp install.sh install.ps1 dist/
+      # the checksum list `sycros update` checks its downloads against
+      - run: cd dist && sha256sum * > SHA256SUMS
       - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
@@ -188,9 +193,11 @@ jobs:
           sh install.sh
           sycros --version
           sycros disks
+          sycros update
       - if: runner.os == 'Windows'
         shell: pwsh
         run: |
           ./install.ps1
           & "$env:LOCALAPPDATA\sycrOS\sycros.exe" --version
           & "$env:LOCALAPPDATA\sycrOS\sycros.exe" disks
+          & "$env:LOCALAPPDATA\sycrOS\sycros.exe" update

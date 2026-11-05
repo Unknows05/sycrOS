@@ -14,6 +14,8 @@ for Windows/macOS from anywhere stays easy. Downloads go through the system `cur
   attr bit 63, MBR byte 92 = 0x22, core.img at LBA 34, byte 34*512+500 = 0x23)
 - `macimg.rs`, `udif.rs` - find HFS+/APFS volume in dmg/iso/img (zlib, bzip2, LZMA, LZFSE, ADC)
 - `library.rs` - OS folders, ventoy.json merge, F6 macOS menu (ventoy_grub.cfg), file sorting
+- `update.rs` - update check (one HEAD request at app start, `SYCROS_NO_UPDATE_CHECK` turns it off) and `sycros update`.
+  Needs the plain program assets and `SHA256SUMS` in every release (`build.yml`); keep those file names stable.
 - `hosts.rs` - all OS-specific commands (lsblk/udisksctl, diskutil/hdiutil, PowerShell)
 - `main.rs` - clap CLI (`run_cmd`). No command = `tui.rs` (ratatui centred full-screen app); `--simple` or a
   small terminal = `menu.rs` (dialoguer). Both reuse `run_cmd`. `ui.rs`: all messages and progress go through

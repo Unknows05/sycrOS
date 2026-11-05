@@ -20,10 +20,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use sycros::hosts::{self, DiskInfo};
 use sycros::rawdisk::human;
-use sycros::{layout, library, ui, Result};
+use sycros::{layout, library, ui, update, Result};
 
 const MIN_W: u16 = 70;
-const MIN_H: u16 = 22;
+const MIN_H: u16 = 24;
 const PANEL_W: u16 = 76;
 const SPINNER: &[&str] = if cfg!(windows) { &["|", "/", "-", "\\"] } else { &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] };
 const TICK: &str = if cfg!(windows) { "√" } else { "✓" };
@@ -48,11 +48,12 @@ enum Action {
     Check,
     BuildImage,
     Disks,
+    Update,
     Quit,
 }
 
-fn home_items() -> Vec<(&'static str, Action)> {
-    let mut items = vec![
+fn home_items(latest: &Option<String>) -> Vec<(String, Action)> {
+    let mut items: Vec<(String, Action)> = [
         ("Prepare a USB stick (erases it)", Action::Prepare),
         ("Add files to a stick (ISO, DMG, ...)", Action::Add),
         ("Show what is on a stick", Action::Show),
@@ -60,12 +61,18 @@ fn home_items() -> Vec<(&'static str, Action)> {
         ("Remove a file", Action::RemoveFile),
         ("Safely remove a stick", Action::Eject),
         ("Check a file (writes nothing)", Action::Check),
-    ];
+    ]
+    .into_iter()
+    .map(|(label, action)| (label.to_string(), action))
+    .collect();
     if !hosts::IS_WIN {
-        items.push(("Build an image file instead of a stick", Action::BuildImage));
+        items.push(("Build an image file instead of a stick".into(), Action::BuildImage));
     }
-    items.push(("Show all disks", Action::Disks));
-    items.push(("Quit", Action::Quit));
+    items.push(("Show all disks".into(), Action::Disks));
+    if let Some(v) = latest {
+        items.push((format!("Update sycrOS to {v}"), Action::Update));
+    }
+    items.push(("Quit".into(), Action::Quit));
     items
 }
 
@@ -151,6 +158,8 @@ struct App {
     screen: Screen,
     flow: Flow,
     frame: usize,
+    /// A newer released version, if the check at start found one.
+    latest: Option<String>,
     /// A command to start; `run` picks it up.
     pending: Option<Cmd>,
     quit: bool,
@@ -174,6 +183,7 @@ impl App {
             screen: Screen::Home,
             flow: Flow::new(Action::Quit),
             frame: 0,
+            latest: None,
             pending: None,
             quit: false,
         }
@@ -317,6 +327,7 @@ impl App {
                 self.start("Checking files", Cmd::Inspect { files: self.flow.files.clone(), workdir: None });
             }
             Action::Disks => self.start("All disks", Cmd::Disks),
+            Action::Update => self.start("Updating sycrOS", Cmd::Update),
             Action::RemoveSection | Action::RemoveFile => self.step_remove(),
             Action::Quit => self.quit = true,
         }
@@ -422,7 +433,7 @@ impl App {
         }
         match &mut self.screen {
             Screen::Home => {
-                let items = home_items();
+                let items = home_items(&self.latest);
                 match code {
                     KeyCode::Up => self.home_sel = (self.home_sel + items.len() - 1) % items.len(),
                     KeyCode::Down => self.home_sel = (self.home_sel + 1) % items.len(),
@@ -681,8 +692,11 @@ fn view<'a>(app: &App, width: usize, height: usize) -> (String, Vec<Line<'a>>, &
                 let how = if hosts::IS_WIN { "open as Administrator" } else { "run: sudo sycros" };
                 body.push(Line::styled(format!("To change a stick, {how}"), Style::new().fg(Color::Yellow)).centered());
             }
+            if let Some(v) = &app.latest {
+                body.push(Line::styled(format!("New version {v} is available"), Style::new().fg(Color::Yellow)).centered());
+            }
             body.push(Line::raw(""));
-            let items: Vec<String> = home_items().iter().map(|(label, _)| label.to_string()).collect();
+            let items: Vec<String> = home_items(&app.latest).iter().map(|(label, _)| label.clone()).collect();
             body.extend(list_lines(&items, app.home_sel, width));
             (format!(" sycrOS {} ", env!("CARGO_PKG_VERSION")), body, " ↑↓ choose   Enter select   q quit ")
         }
@@ -840,6 +854,7 @@ fn draw(f: &mut Frame, app: &App) {
 // the loop
 // ---------------------------------------------------------------------------
 enum Msg {
+    Latest(String),
     Disks(Vec<DiskInfo>),
     Finished(std::result::Result<(), String>),
 }
@@ -869,6 +884,16 @@ pub fn run() -> Result<()> {
                 }
                 wait += 1;
                 std::thread::sleep(Duration::from_millis(100));
+            }
+        });
+    }
+
+    // One small check for a newer version, in the background. If it fails, nothing is shown.
+    if std::env::var_os("SYCROS_NO_UPDATE_CHECK").is_none() {
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            if let Ok(Some(v)) = update::newer_version() {
+                let _ = tx.send(Msg::Latest(v));
             }
         });
     }
@@ -907,6 +932,10 @@ fn run_loop(
         }
         while let Ok(msg) = rx.try_recv() {
             match msg {
+                Msg::Latest(v) => {
+                    app.latest = Some(v);
+                    dirty = true;
+                }
                 Msg::Disks(disks) => {
                     if !app.disks_read || disks != app.disks {
                         app.disks = disks;
@@ -915,6 +944,11 @@ fn run_loop(
                     }
                 }
                 Msg::Finished(result) => {
+                    if app.flow.action == Action::Update && result.is_ok() {
+                        app.latest = None;
+                        let items = home_items(&None).len();
+                        app.home_sel = app.home_sel.min(items - 1);
+                    }
                     // collect the last messages sent before the command ended
                     while let Ok(ev) = ui_rx.try_recv() {
                         app.on_ui(ev);
@@ -1070,6 +1104,17 @@ mod tests {
         a.key(KeyCode::Enter, false);
         assert!(matches!(a.screen, Screen::Work(_)));
         assert!(matches!(a.pending, Some(Cmd::Init { .. })));
+    }
+
+    #[test]
+    fn update_choice_appears_only_when_a_new_version_exists() {
+        let mut a = app();
+        assert!(!screen(&a, 80, 30).join("\n").contains("Update sycrOS"));
+        a.latest = Some("9.9.9".into());
+        let text = screen(&a, 80, 30).join("\n");
+        assert!(text.contains("New version 9.9.9") && text.contains("Update sycrOS to 9.9.9"), "{text}");
+        // and everything still fits in the smallest window the app opens in
+        assert!(screen(&a, MIN_W, MIN_H).join("\n").contains("Quit"));
     }
 
     #[test]

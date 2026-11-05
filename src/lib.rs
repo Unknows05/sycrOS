@@ -12,6 +12,7 @@ pub mod library;
 pub mod macimg;
 pub mod rawdisk;
 pub mod udif;
+pub mod update;
 pub mod ui;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;

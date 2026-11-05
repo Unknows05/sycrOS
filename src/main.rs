@@ -9,7 +9,7 @@ use std::io::{self, BufRead, Write};
 use std::path::Path;
 use sycros::library::{self, OsKind};
 use sycros::rawdisk::human;
-use sycros::{engine, hosts, layout, macimg, ui, Result};
+use sycros::{engine, hosts, layout, macimg, ui, update, Result};
 
 const EXAMPLES: &str = "\
 examples:
@@ -20,6 +20,7 @@ examples:
   sycros status /dev/sdb --files
   sycros remove /dev/sdb --slot 3               delete a macOS slot
   sycros eject /dev/sdb                         safely remove the stick
+  sycros update                                 update sycrOS to the newest version
   sycros inspect Tahoe.iso                      what sycrOS sees inside a file
   sycros init stick.img --size 16G --mac-space 8G   build an image to flash later
 
@@ -114,6 +115,8 @@ pub(crate) enum Cmd {
         #[arg(long)]
         files: bool,
     },
+    /// Update sycrOS to the newest version (connects to GitHub)
+    Update,
     /// Show how sycrOS would use a file (writes nothing)
     Inspect {
         #[arg(required = true)]
@@ -329,6 +332,8 @@ pub(crate) fn run_cmd(cmd: Cmd) -> Result<()> {
             ui::say("Done. It is now safe to unplug the stick.");
         }
 
+        Cmd::Update => update::update()?,
+
         Cmd::Status { disk, files } => {
             let mut d = layout::Disk::open(&disk, None, false, true)?;
             layout::status(&mut d)?;
@@ -370,6 +375,7 @@ pub(crate) fn run_cmd(cmd: Cmd) -> Result<()> {
 
 fn main() {
     let cli = Cli::parse();
+    update::cleanup();
     let result = match cli.cmd {
         Some(cmd) => run_cmd(cmd),
         None if !cli.simple && tui::usable() => tui::run(),

@@ -109,7 +109,14 @@ appears as a normal drive. Building image files is not available on Windows.
 After that, a normal double-click works. (If macOS still refuses: System Settings →
 Privacy & Security → scroll down → **Open Anyway**.) The one-line installer avoids this.
 
-**Update:** run the same install line or download again; it replaces the old version.
+**Update:** when the app opens, it asks GitHub once whether a newer version exists, in the
+background. If there is one, the app says so and adds **Update sycrOS** to the menu. Choose it to
+download the new version, check its fingerprint and replace the program. Or run `sycros update`.
+sycrOS never updates by itself, and your sticks are not touched.
+
+- This check sends a normal web request to github.com and nothing else. If it fails, you see nothing.
+- To turn it off, set `SYCROS_NO_UPDATE_CHECK=1`.
+- Updating works from v0.3.0 on. For older versions, run the install line again.
 
 ### Or build it yourself
 

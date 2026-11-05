@@ -132,7 +132,7 @@ impl Engine {
     }
 }
 
-fn sha256_file(path: &Path) -> io::Result<String> {
+pub fn sha256_file(path: &Path) -> io::Result<String> {
     let mut h = Sha256::new();
     let mut f = File::open(path)?;
     let mut buf = vec![0u8; 1 << 20];

@@ -30,6 +30,7 @@ impl App {
             .unwrap();
         let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_sycros"));
         cmd.env("TERM", "xterm-256color");
+        cmd.env("SYCROS_NO_UPDATE_CHECK", "1"); // keep the menu the same whatever is released
         let child = pair.slave.spawn_command(cmd).unwrap();
         drop(pair.slave);
         let screen = Arc::new(Mutex::new((vt100::Parser::new(NonZeroU16::new(ROWS).unwrap(), NonZeroU16::new(COLS).unwrap(), 0), Vec::new())));
