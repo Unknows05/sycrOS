@@ -46,6 +46,9 @@ impl Screen {
     fn text(&self) -> String {
         plain(&self.0.lock().unwrap())
     }
+    fn raw_contains(&self, want: &[u8]) -> bool {
+        self.0.lock().unwrap().windows(want.len()).any(|w| w == want)
+    }
     /// Wait for `want` to appear after byte position `from` of the plain text.
     fn wait_for(&self, want: &str, from: usize) -> usize {
         let start = Instant::now();
@@ -87,6 +90,17 @@ fn menu_opens_shows_disks_and_quits() {
         keys.flush().unwrap();
         std::thread::sleep(Duration::from_millis(400));
     };
+
+    // Windows' terminal layer asks "where is the cursor?" and waits for the answer
+    // before it shows anything. A normal terminal window answers this by itself.
+    if cfg!(windows) {
+        let start = Instant::now();
+        while !screen.raw_contains(b"\x1b[6n") {
+            assert!(start.elapsed() < Duration::from_secs(60), "no cursor question from the console");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        send("\x1b[1;1R");
+    }
 
     let at = screen.wait_for("What do you want to do?", 0);
     let at = screen.wait_for("Quit", at);

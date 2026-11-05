@@ -54,7 +54,8 @@ jobs:
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $dumpbin = & $vswhere -latest -find "**\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          $vs = & $vswhere -latest -products * -property installationPath
+          $dumpbin = (Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1).FullName
           $deps = & $dumpbin /dependents target\release\sycros.exe | Out-String
           Write-Output $deps
           if ($deps -match 'VCRUNTIME') { throw "sycros.exe still needs VCRUNTIME140.dll" }
