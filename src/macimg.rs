@@ -236,7 +236,7 @@ pub fn find_volume(path: &str, workdir: Option<&str>) -> Result<MacVolume> {
         if let Some((len, fs, label)) = sniff(&mut f, off, &h) {
             let len = len.min(max_len).min(size.saturating_sub(off));
             // prefer the biggest volume (an installer beats a tiny helper volume)
-            if best.as_ref().map_or(true, |b| len > b.1) {
+            if best.as_ref().is_none_or(|b| len > b.1) {
                 best = Some((off, len, fs, label));
             }
         }

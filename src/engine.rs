@@ -161,13 +161,16 @@ pub fn get_engine(refresh: bool, tarball: Option<&str>, quiet: bool) -> Result<E
     };
     if tarball.is_none() && (refresh || !tar_path.exists()) {
         if !quiet {
-            println!("Downloading boot engine (Ventoy {VENTOY_VERSION}, ~20 MB) ...");
+            crate::ui::say(format!("Downloading boot engine (Ventoy {VENTOY_VERSION}, ~20 MB) ..."));
         }
         let tmp = tar_path.with_extension("part");
         // curl ships with Linux, macOS and Windows 10+; it keeps sycrOS free of TLS code
         let tmp_s = tmp.to_string_lossy().to_string();
         let ok = std::process::Command::new(if cfg!(windows) { "curl.exe" } else { "curl" })
-            .args(["-fL", "--retry", "3", "-o", &tmp_s, URL])
+            .args([if crate::ui::attached() { "-fsSL" } else { "-fL" }, "--retry", "3", "-o", &tmp_s, URL])
+            .stdin(std::process::Stdio::null())
+            .stdout(if crate::ui::attached() { std::process::Stdio::null() } else { std::process::Stdio::inherit() })
+            .stderr(if crate::ui::attached() { std::process::Stdio::null() } else { std::process::Stdio::inherit() })
             .status()
             .map(|s| s.success())
             .unwrap_or(false);
@@ -214,7 +217,7 @@ pub fn get_engine(refresh: bool, tarball: Option<&str>, quiet: bool) -> Result<E
     }
     fs::write(&marker, VENTOY_VERSION)?;
     if !quiet {
-        println!("Boot engine ready in {}", folder.display());
+        crate::ui::say(format!("Boot engine ready in {}", folder.display()));
     }
     Ok(Engine { folder })
 }

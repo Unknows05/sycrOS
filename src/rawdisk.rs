@@ -101,7 +101,6 @@ impl Target {
             let want = ((length - done) as usize).min(CHUNK);
             read_full(&mut f, &mut buf[..want])?;
             if self.read_at(dst_off + done, want)? != buf[..want] {
-                eprintln!();
                 return Err(check_failed(done));
             }
             done += want as u64;
@@ -197,7 +196,6 @@ pub fn verify_files(src: &Path, dst: &Path, label: &str) -> io::Result<()> {
         read_full(&mut a, &mut x[..want])?;
         read_full(&mut b, &mut y[..want])?;
         if x[..want] != y[..want] {
-            eprintln!();
             return Err(check_failed(done));
         }
         done += want as u64;
@@ -240,6 +238,10 @@ impl Progress {
             }
         }
         self.last = Some(now);
+        if crate::ui::attached() {
+            crate::ui::send(crate::ui::Event::Progress { label: self.label.clone(), done, total: self.total });
+            return;
+        }
         let pct = if self.total == 0 { 100.0 } else { 100.0 * done as f64 / self.total as f64 };
         let secs = now.duration_since(self.start).as_secs_f64().max(0.001);
         eprint!(
@@ -253,6 +255,10 @@ impl Progress {
     }
 
     pub fn finish(&mut self) {
+        if crate::ui::attached() {
+            crate::ui::send(crate::ui::Event::ProgressEnd { label: self.label.clone() });
+            return;
+        }
         self.last = None;
         self.update(self.total);
         eprintln!();

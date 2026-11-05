@@ -71,9 +71,12 @@ fn back() -> sycros::Error {
 fn pick_disk(prompt: &str, writable: bool) -> Result<(String, bool)> {
     loop {
         let disks: Vec<_> = hosts::list_disks()?.into_iter().filter(|d| !d.system).collect();
-        let usb: Vec<_> = disks.iter().filter(|d| d.removable).collect();
+        let usb: Vec<_> = disks.iter().filter(|d| d.removable && hosts::holds_system(&d.parts).is_none()).collect();
+        for d in disks.iter().filter(|d| d.removable && hosts::holds_system(&d.parts).is_some()) {
+            println!("\n  Not offered: {} {} {} ({})", d.id, human(d.size), d.model, hosts::describe(&d.parts));
+        }
         let mut items: Vec<String> =
-            usb.iter().map(|d| format!("{:<14} {:>9}   {}", d.id, human(d.size), d.model)).collect();
+            usb.iter().map(|d| format!("{:<14} {:>9}   {:<24} {}", d.id, human(d.size), d.model, hosts::describe(&d.parts))).collect();
         if usb.is_empty() {
             println!("\n  No USB stick found. Plug one in, then choose 'Look again'.");
         }
@@ -98,10 +101,10 @@ fn pick_disk(prompt: &str, writable: bool) -> Result<(String, bool)> {
         // a typed non-USB disk: say so clearly and ask once more
         let internal = match layout::check_disk(&typed, writable, false) {
             Ok(_) => false,
-            Err(e) if e.to_string().contains("internal disk") => {
+            Err(e) if e.to_string().contains("--internal") => {
                 println!("\n  {e}");
                 let sure = Confirm::with_theme(&theme())
-                    .with_prompt("This is NOT a USB stick. Use it anyway?")
+                    .with_prompt("This does NOT look like a USB stick. Use it anyway?")
                     .default(false)
                     .interact()?;
                 if !sure {

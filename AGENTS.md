@@ -15,7 +15,9 @@ for Windows/macOS from anywhere stays easy. Downloads go through the system `cur
 - `macimg.rs`, `udif.rs` - find HFS+/APFS volume in dmg/iso/img (zlib, bzip2, LZMA, LZFSE, ADC)
 - `library.rs` - OS folders, ventoy.json merge, F6 macOS menu (ventoy_grub.cfg), file sorting
 - `hosts.rs` - all OS-specific commands (lsblk/udisksctl, diskutil/hdiutil, PowerShell)
-- `main.rs` - clap CLI (`run_cmd`); no command = `menu.rs` (dialoguer menu, reuses `run_cmd`).
+- `main.rs` - clap CLI (`run_cmd`). No command = `tui.rs` (ratatui centred full-screen app); `--simple` or a
+  small terminal = `menu.rs` (dialoguer). Both reuse `run_cmd`. `ui.rs`: all messages and progress go through
+  it, so never print directly from library code: it would draw over the app.
 - `tests/` - integration tests; `tests/common` builds fake Mac images.
 - `install.sh` / `install.ps1` - one-line installers (download releases/latest; file names have no version).
 - `packaging/` - `linux/build-deb.sh` (.deb + .desktop, static musl build), Windows/macOS double-click launchers.
@@ -26,7 +28,10 @@ for Windows/macOS from anywhere stays easy. Downloads go through the system `cur
 - Before saying done: `cargo clippy --all-targets` clean and `cargo test` green.
   Also `cargo clippy --target x86_64-pc-windows-gnu` and `--target aarch64-apple-darwin`
   (rustup targets are installed) so Windows/macOS code still compiles.
-- Menu changes: `tests/menu_pty.rs` drives the real menu in a real terminal on all three systems.
+- App and menu changes: `tests/tui_pty.rs` and `tests/menu_pty.rs` drive them in a real terminal on all three
+  systems. Those tests must never choose a real disk; use "type a name" with an image file.
+- Wrong-disk safety: `hosts::holds_system` (USB SSDs look like sticks), `hosts::is_system_mount`,
+  `hosts::erase_words`, `layout::check_disk`. The app always asks which stick, even with only one.
 - Windows CI writes to a virtual disk (.vhd) with init/add/remove/eject; still not a real USB stick.
 - Packages must run on any machine: Linux = musl static (check `file` says static), Windows .exe must
   not import VCRUNTIME140.dll (check `objdump -p`), macOS binaries must pass `codesign --verify` (CI does).

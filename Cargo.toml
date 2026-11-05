@@ -1,10 +1,10 @@
 [package]
 name = "sycros"
-version = "0.2.3"
+version = "0.3.0"
 edition = "2021"
 description = "sycrOS - one USB stick for Windows, Linux and macOS installers"
 license = "GPL-3.0-or-later"
-rust-version = "1.75"
+rust-version = "1.86"
 
 [[bin]]
 name = "sycros"
@@ -23,12 +23,15 @@ serde_json = { version = "1", features = ["preserve_order"] }
 regex = "1"
 getrandom = "0.2"
 dialoguer = { version = "0.11", default-features = false }
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+crossterm = { version = "0.29", default-features = false, features = ["bracketed-paste", "events", "windows"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]
 portable-pty = "0.9"
+vt100 = "0.18.1"
 
 [profile.release]
 opt-level = 3

@@ -1,13 +1,15 @@
-//! sycros command line. With no arguments it opens the interactive menu (menu.rs).
+//! sycros command line. With no arguments it opens the full-screen app (tui.rs),
+//! or the simple menu (menu.rs) with --simple or in a very small or basic terminal.
 
 mod menu;
+mod tui;
 
 use clap::{Parser, Subcommand};
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 use sycros::library::{self, OsKind};
 use sycros::rawdisk::human;
-use sycros::{engine, hosts, layout, macimg, Result};
+use sycros::{engine, hosts, layout, macimg, ui, Result};
 
 const EXAMPLES: &str = "\
 examples:
@@ -27,7 +29,10 @@ disk names:  Linux /dev/sdb   macOS /dev/disk4   Windows 2 (disk number)";
 #[command(name = "sycros", version = concat!(env!("CARGO_PKG_VERSION"), " (Ventoy 1.1.18 boot engine)"),
           about = "sycrOS - one USB for Windows, Linux and macOS installers.", after_help = EXAMPLES)]
 struct Cli {
-    /// No command = interactive menu
+    /// With no command: use the simple menu instead of the full-screen app
+    #[arg(long)]
+    simple: bool,
+    /// No command = the full-screen app
     #[command(subcommand)]
     cmd: Option<Cmd>,
 }
@@ -60,7 +65,7 @@ pub(crate) enum Cmd {
         /// Do not ask for confirmation
         #[arg(long)]
         yes: bool,
-        /// Allow an internal (non-USB) disk
+        /// Allow an internal disk, or one that seems to hold a computer's system
         #[arg(long)]
         internal: bool,
     },
@@ -78,7 +83,7 @@ pub(crate) enum Cmd {
         /// Folder for temporary files when unpacking .dmg
         #[arg(long)]
         workdir: Option<String>,
-        /// Allow an internal (non-USB) disk
+        /// Allow an internal disk, or one that seems to hold a computer's system
         #[arg(long)]
         internal: bool,
     },
@@ -91,14 +96,14 @@ pub(crate) enum Cmd {
         /// File path on the disk, e.g. Linux/ubuntu.iso
         #[arg(long)]
         file: Option<String>,
-        /// Allow an internal (non-USB) disk
+        /// Allow an internal disk, or one that seems to hold a computer's system
         #[arg(long)]
         internal: bool,
     },
     /// Safely remove a stick: finish writing, then it can be unplugged
     Eject {
         disk: String,
-        /// Allow an internal (non-USB) disk
+        /// Allow an internal disk, or one that seems to hold a computer's system
         #[arg(long)]
         internal: bool,
     },
@@ -149,6 +154,23 @@ fn need_admin(disk: &str, internal: bool) -> Result<()> {
     Err(format!("Writing to a disk needs admin rights - {how}.").into())
 }
 
+/// Ask the user to type "ERASE <disk>": harder to do by mistake than a plain YES.
+fn confirm_erase(text: &str, id: &str, yes: bool) -> Result<()> {
+    if yes {
+        return Ok(());
+    }
+    let words = hosts::erase_words(id);
+    println!("{text}");
+    print!("Check this is the right one, then type {words} : ");
+    io::stdout().flush()?;
+    let mut line = String::new();
+    io::stdin().lock().read_line(&mut line)?;
+    if line.trim() != words {
+        return Err("Cancelled. Nothing was changed.".into());
+    }
+    Ok(())
+}
+
 fn confirm(text: &str, yes: bool) -> Result<()> {
     if yes {
         return Ok(());
@@ -167,17 +189,28 @@ fn confirm(text: &str, yes: bool) -> Result<()> {
 pub(crate) fn run_cmd(cmd: Cmd) -> Result<()> {
     match cmd {
         Cmd::Disks => {
-            println!("{:<16}{:>10}  {:<10} MODEL", "DISK", "SIZE", "TYPE");
-            for d in hosts::list_disks()? {
-                let kind = if d.system { "SYSTEM" } else if d.removable { "usb/sd" } else { "internal" };
-                println!("{:<16}{:>10}  {:<10} {}", d.id, human(d.size), kind, d.model);
+            let kind_of = |d: &hosts::DiskInfo| if d.system { "SYSTEM" } else if d.removable { "usb/sd" } else { "internal" };
+            if ui::attached() {
+                // the full-screen panel is narrow: one short block per disk
+                for d in hosts::list_disks()? {
+                    ui::say(format!("{}  {}  {}", d.id, human(d.size), kind_of(&d)));
+                    ui::say(format!("   {}", if d.model.is_empty() { "-" } else { &d.model }));
+                    ui::say(format!("   {}", hosts::describe(&d.parts)));
+                }
+                ui::say("SYSTEM disks are always refused. Internal disks, and disks that seem to hold a system, are not offered.");
+            } else {
+                ui::say(format!("{:<16}{:>10}  {:<10} {:<28} ON IT NOW", "DISK", "SIZE", "TYPE", "MODEL"));
+                for d in hosts::list_disks()? {
+                    ui::say(format!("{:<16}{:>10}  {:<10} {:<28} {}", d.id, human(d.size), kind_of(&d), d.model, hosts::describe(&d.parts)));
+                }
+                ui::say("\nOnly use a usb/sd disk. USB SSDs look like sticks too, so check the model and what is on it.");
+                ui::say("sycrOS refuses SYSTEM disks, and asks for --internal on internal disks and disks that seem to hold a system.");
             }
-            println!("\nOnly use a usb/sd disk. sycrOS refuses SYSTEM disks.");
         }
 
         Cmd::Engine { refresh, tarball } => {
             let e = engine::get_engine(refresh, tarball.as_deref(), false)?;
-            println!("Ventoy {} boot files: {}", e.version(), e.folder.display());
+            ui::say(format!("Ventoy {} boot files: {}", e.version(), e.folder.display()));
         }
 
         Cmd::Init { disk, mac_space, size, label, yes, internal } => {
@@ -191,18 +224,28 @@ pub(crate) fn run_cmd(cmd: Cmd) -> Result<()> {
             }
             let mut d = layout::Disk::open(&disk, size, true, internal)?;
             if let Some(info) = &d.info {
-                confirm(
-                    &format!("\nALL DATA on {} ({}, {}) will be ERASED.", d.name, human(d.raw.size), info.model),
+                confirm_erase(
+                    &format!(
+                        "\nALL DATA on {} ({}, {}) will be ERASED.\nNow on it: {}",
+                        d.name,
+                        human(d.raw.size),
+                        info.model,
+                        hosts::describe(&info.parts)
+                    ),
+                    &info.id,
                     yes,
                 )?;
+            } else if size.is_none() {
+                // an existing file: `init Win11.iso` must not silently destroy the ISO
+                confirm_erase(&format!("\nThe file {disk} ({}) will be OVERWRITTEN.", human(d.raw.size)), "file", yes)?;
             }
             layout::init(&mut d, &eng, mac_space, &label, true)?;
             let root = layout::refresh_menus(&mut d)?;
-            println!("\nDone. {} is a sycrOS disk.", d.name);
+            ui::say(format!("\nDone. {} is a sycrOS disk.", d.name));
             if let Some(r) = root {
-                println!("ISO files go in: {}  (folders Windows / Linux / Tools)", r.display());
+                ui::say(format!("ISO files go in: {}  (folders Windows / Linux / Tools)", r.display()));
             }
-            println!("Next: sycros add <disk> <file.iso|file.dmg> ...");
+            ui::say("Next: sycros add <disk> <file.iso|file.dmg> ...");
         }
 
         Cmd::Add { disk, files, os_kind, name, workdir, internal } => {
@@ -235,19 +278,19 @@ pub(crate) fn run_cmd(cmd: Cmd) -> Result<()> {
                     for (f, kind) in isos {
                         let dest = library::copy_file(&f, &root, kind)?;
                         let size = std::fs::metadata(&dest)?.len();
-                        println!(
+                        ui::say(format!(
                             "  {} -> {}/  ({})",
                             Path::new(&f).file_name().unwrap_or_default().to_string_lossy(),
                             kind.folder(),
                             human(size)
-                        );
+                        ));
                     }
                 }
             }
             if d.is_image {
-                println!("Done.");
+                ui::say("Done.");
             } else {
-                println!("Done. Before unplugging the stick, use: sycros eject {disk}");
+                ui::say(format!("Done. Before unplugging the stick, use: sycros eject {disk}"));
             }
         }
 
@@ -271,7 +314,7 @@ pub(crate) fn run_cmd(cmd: Cmd) -> Result<()> {
                     return Err(format!("{f} not found on the disk (see: sycros status --files)").into());
                 }
                 std::fs::remove_file(&p)?;
-                println!("Removed {f}");
+                ui::say(format!("Removed {f}"));
             }
         }
 
@@ -280,10 +323,10 @@ pub(crate) fn run_cmd(cmd: Cmd) -> Result<()> {
                 return Err("This is an image file, not a stick: nothing to remove.".into());
             }
             need_admin(&disk, internal)?;
-            let info = layout::check_disk(&disk, true, internal)?;
-            println!("Finishing writes to {} ...", info.id);
+            let info = hosts::find_disk(&disk)?;
+            ui::say(format!("Finishing writes to {} ...", info.id));
             hosts::eject_disk(&info)?;
-            println!("Done. It is now safe to unplug the stick.");
+            ui::say("Done. It is now safe to unplug the stick.");
         }
 
         Cmd::Status { disk, files } => {
@@ -291,9 +334,9 @@ pub(crate) fn run_cmd(cmd: Cmd) -> Result<()> {
             layout::status(&mut d)?;
             if files {
                 if let Some(root) = d.data_folder() {
-                    println!("\nfiles:");
+                    ui::say("\nfiles:");
                     for (folder, name, size) in library::list_files(&root) {
-                        println!("  {folder:<8} {name}  ({})", human(size));
+                        ui::say(format!("  {folder:<8} {name}  ({})", human(size)));
                     }
                 }
             }
@@ -301,23 +344,23 @@ pub(crate) fn run_cmd(cmd: Cmd) -> Result<()> {
 
         Cmd::Inspect { files, workdir } => {
             for f in files {
-                println!("{f}:");
+                ui::say(format!("{f}:"));
                 if macimg::looks_like_mac(&f) {
                     let v = macimg::find_volume(&f, workdir.as_deref())?;
-                    println!(
+                    ui::say(format!(
                         "  macOS image -> macOS slot. {} volume '{}', {}, type: {}",
                         v.fs.label(),
                         v.label,
                         human(v.length),
                         v.kind().label()
-                    );
+                    ));
                     let more = if v.kind() == macimg::Kind::Recovery { "" } else { " + Apple silicon (if it is a full installer)" };
-                    println!("  boots on: Intel Macs{more}");
+                    ui::say(format!("  boots on: Intel Macs{more}"));
                 } else {
                     let k = library::classify(&f);
                     let lbl = library::iso_label(&f);
                     let extra = if lbl.is_empty() { String::new() } else { format!("  (label: {lbl})") };
-                    println!("  {:?} image -> {}/ folder{extra}", k, k.folder());
+                    ui::say(format!("  {:?} image -> {}/ folder{extra}", k, k.folder()));
                 }
             }
         }
@@ -329,6 +372,7 @@ fn main() {
     let cli = Cli::parse();
     let result = match cli.cmd {
         Some(cmd) => run_cmd(cmd),
+        None if !cli.simple && tui::usable() => tui::run(),
         None => menu::run(),
     };
     if let Err(e) = result {

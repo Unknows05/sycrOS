@@ -64,6 +64,16 @@ pub fn check_disk(target: &str, writable: bool, allow_internal: bool) -> Result<
         )
         .into());
     }
+    if writable && !allow_internal {
+        if let Some(os) = hosts::holds_system(&info.parts) {
+            return Err(format!(
+                "{} ({}) looks like a computer's disk: it seems to hold {os}. \
+                 USB SSDs can look like sticks, so check this carefully. If you really mean it, add --internal.",
+                info.id, info.model
+            )
+            .into());
+        }
+    }
     Ok(info)
 }
 
@@ -112,7 +122,7 @@ impl Disk {
             return match hosts::mount_data(info, 1) {
                 Ok(p) => Some(p),
                 Err(e) => {
-                    eprintln!("  {e}");
+                    crate::ui::say(format!("  {e}"));
                     None
                 }
             };
@@ -120,7 +130,7 @@ impl Disk {
         self.raw.flush();
         let dev = hosts::attach_image(&self.name)?;
         self.attached = Some(dev.clone());
-        let fake = DiskInfo { id: dev.clone(), path: dev, size: self.raw.size, model: "image".into(), removable: true, system: false };
+        let fake = DiskInfo { id: dev.clone(), path: dev, size: self.raw.size, model: "image".into(), removable: true, system: false, parts: vec![] };
         hosts::mount_data(&fake, 1).ok()
     }
 }
@@ -220,7 +230,7 @@ pub fn init(disk: &mut Disk, engine: &Engine, mac_space: u64, label: &str, verbo
     let p2_last = p2_first + EFI_PART_SECTORS - 1;
     let log = |s: String| {
         if verbose {
-            println!("{s}");
+            crate::ui::say(s);
         }
     };
 
@@ -268,6 +278,7 @@ pub fn init(disk: &mut Disk, engine: &Engine, mac_space: u64, label: &str, verbo
                 model: "image".into(),
                 removable: true,
                 system: false,
+                parts: vec![],
             };
             let r = hosts::format_exfat(engine, &fake, 1, label);
             hosts::detach_image(&dev);
@@ -293,7 +304,7 @@ pub fn add_mac(disk: &mut Disk, image: &str, name: Option<&str>, workdir: Option
     let (_, p2) = check_layout(&g)?;
     let log = |s: String| {
         if verbose {
-            println!("{s}");
+            crate::ui::say(s);
         }
     };
 
@@ -361,7 +372,7 @@ pub fn remove_mac(disk: &mut Disk, number: usize, verbose: bool) -> Result<Parti
     disk.raw.flush();
     disk.reread();
     if verbose {
-        println!("Removed macOS slot {number} ('{}'), freed {}", p.name, human(p.size()));
+        crate::ui::say(format!("Removed macOS slot {number} ('{}'), freed {}", p.name, human(p.size())));
     }
     Ok(p)
 }
@@ -371,7 +382,7 @@ pub fn refresh_menus(disk: &mut Disk) -> Result<Option<PathBuf>> {
     let g = disk.read_gpt()?;
     let slots: Vec<(usize, String, Fs)> = mac_slots(&g).into_iter().map(|(n, p)| (n, p.name.clone(), slot_fs(&p))).collect();
     let Some(root) = disk.data_folder() else {
-        println!("  (data partition not mounted - menus will be written on the next 'add' from a USB disk)");
+        crate::ui::say("  (data partition not mounted - menus will be written on the next 'add' from a USB disk)");
         return Ok(None);
     };
     library::ensure_layout(&root)?;
@@ -385,12 +396,12 @@ pub fn refresh_menus(disk: &mut Disk) -> Result<Option<PathBuf>> {
 pub fn status(disk: &mut Disk) -> Result<()> {
     let g = disk.read_gpt()?;
     let (p1, p2) = check_layout(&g)?;
-    println!("{}  ({})  Ventoy-compatible GPT layout", disk.name, human(disk.raw.size));
-    println!("  1  ISO files      {:>10}   (Windows / Linux / Tools folders)", human(p1.size()));
-    println!("  2  boot files     {:>10}", human(p2.size()));
+    crate::ui::say(format!("{}  ({})  Ventoy-compatible GPT layout", disk.name, human(disk.raw.size)));
+    crate::ui::say(format!("  1  ISO files      {:>10}   (Windows / Linux / Tools folders)", human(p1.size())));
+    crate::ui::say(format!("  2  boot files     {:>10}", human(p2.size())));
     for (n, p) in mac_slots(&g) {
-        println!("  {n}  macOS ({})    {:>10}   {}", slot_fs(&p).label(), human(p.size()), p.name);
+        crate::ui::say(format!("  {n}  macOS ({})    {:>10}   {}", slot_fs(&p).label(), human(p.size()), p.name));
     }
-    println!("     free for macOS {:>10}", human(mac_free(&g)));
+    crate::ui::say(format!("     free for macOS {:>10}", human(mac_free(&g))));
     Ok(())
 }

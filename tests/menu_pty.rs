@@ -1,4 +1,4 @@
-//! Drives the real menu through a real terminal (Linux, macOS and Windows):
+//! The simple menu (`sycros --simple`). Drives the real menu through a real terminal (Linux, macOS and Windows):
 //! open it, check the choices, run "Show all disks", go back, and quit.
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
@@ -68,7 +68,9 @@ fn menu_opens_shows_disks_and_quits() {
     let pair = native_pty_system()
         .openpty(PtySize { rows: 40, cols: 120, pixel_width: 0, pixel_height: 0 })
         .unwrap();
-    let mut child = pair.slave.spawn_command(CommandBuilder::new(env!("CARGO_BIN_EXE_sycros"))).unwrap();
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_sycros"));
+    cmd.arg("--simple");
+    let mut child = pair.slave.spawn_command(cmd).unwrap();
     drop(pair.slave);
 
     let buf = Arc::new(Mutex::new(Vec::new()));

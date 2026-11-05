@@ -14,7 +14,7 @@ pub const IS_LINUX: bool = cfg!(target_os = "linux");
 pub const IS_MAC: bool = cfg!(target_os = "macos");
 pub const IS_WIN: bool = cfg!(windows);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DiskInfo {
     /// What the user types: /dev/sdb, /dev/disk4, 2 (Windows disk number).
     pub id: String,
@@ -25,6 +25,89 @@ pub struct DiskInfo {
     pub removable: bool,
     /// Holds the running OS -> never touch.
     pub system: bool,
+    pub parts: Vec<DiskPart>,
+}
+
+/// One partition, as far as the system can tell without opening it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DiskPart {
+    /// Volume label, or partition name if there is no label.
+    pub label: String,
+    /// File system: exfat, ntfs, ext4, hfsplus, ... ("" if unknown).
+    pub fs: String,
+    /// Partition type, lower case: a GUID on Linux/Windows, a name on macOS.
+    pub kind: String,
+    /// Partition name in the disk's table ("" if none).
+    pub name: String,
+    pub size: u64,
+}
+
+const ESP: &str = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b";
+const APFS: &str = "7c3457ef-0000-11aa-aa11-00306543ecac";
+const WINDOWS_KINDS: [&str; 5] =
+    ["e3c9e316-0b5c-4db8-817d-f92df00215ae", "de94bba4-06d1-4d40-a16a-bfd50179d6ac", "microsoft reserved", "windows recovery", "windows_ntfs"];
+const LINUX_KINDS: [&str; 5] = [
+    "4f68bce3-e8cd-4db1-96e7-fbcaf984b709",
+    "e6d6d379-f507-44c2-a23c-238f2a3df928",
+    "ca7d7ccb-63ed-4c53-861c-1742536059cc",
+    "0657fd6d-a4ab-43c4-84e5-0933c84b4f4f",
+    "linux swap",
+];
+
+/// True if this is already a sycrOS (or Ventoy) stick.
+pub fn is_sycros(parts: &[DiskPart]) -> bool {
+    parts.iter().any(|p| p.name == "sycrOS-boot" || p.name == "VTOYEFI" || p.label == "VTOYEFI")
+}
+
+/// Which system this disk seems to hold, judging by its partitions.
+/// A best guess: it protects against mistakes, it cannot prove a disk is safe.
+pub fn holds_system(parts: &[DiskPart]) -> Option<&'static str> {
+    if is_sycros(parts) {
+        return None;
+    }
+    let has_kind = |list: &[&str]| parts.iter().any(|p| list.contains(&p.kind.as_str()));
+    let has_fs = |list: &[&str]| parts.iter().any(|p| list.contains(&p.fs.as_str()));
+    let esp = parts.iter().any(|p| p.kind == ESP || p.kind == "efi" || p.kind == "efi system partition");
+    if has_kind(&WINDOWS_KINDS) || (esp && has_fs(&["ntfs"])) {
+        Some("Windows")
+    } else if has_kind(&LINUX_KINDS)
+        || has_fs(&["crypto_luks", "lvm2_member", "swap"])
+        || (esp && has_fs(&["ext4", "ext3", "btrfs", "xfs", "f2fs"]))
+    {
+        Some("Linux")
+    } else if parts.iter().any(|p| p.kind == APFS || p.kind == "apple_apfs" || p.fs == "apfs") {
+        Some("macOS")
+    } else {
+        None
+    }
+}
+
+/// Plain-words summary, e.g. "sycrOS stick" or "Windows? 4 parts: Data, Recovery".
+pub fn describe(parts: &[DiskPart]) -> String {
+    if is_sycros(parts) {
+        return "sycrOS stick".into();
+    }
+    if parts.is_empty() {
+        return "empty".into();
+    }
+    let names: Vec<&str> = parts.iter().map(|p| p.label.as_str()).filter(|l| !l.is_empty()).take(3).collect();
+    let count = if parts.len() == 1 { "1 part".to_string() } else { format!("{} parts", parts.len()) };
+    let what = if names.is_empty() { count } else { format!("{count}: {}", names.join(", ")) };
+    match holds_system(parts) {
+        Some(os) => format!("has {os}? {what}"),
+        None => what,
+    }
+}
+
+/// Words the user must type to erase a disk: "ERASE sdb", "ERASE disk4", "ERASE 2".
+pub fn erase_words(id: &str) -> String {
+    format!("ERASE {}", id.rsplit('/').next().unwrap_or(id))
+}
+
+/// A mount at any of these places is normal for a USB stick; anywhere else
+/// means the running system is using this disk.
+pub fn is_system_mount(m: &str) -> bool {
+    m.starts_with("[SWAP") || !["/media/", "/run/media/", "/mnt/", "/tmp/", "/Volumes/"].iter().any(|p| m.starts_with(p))
 }
 
 /// Run a command; return stdout. With `check`, a non-zero exit is an error.
@@ -100,6 +183,9 @@ fn walk_json<'a>(n: &'a Value, out: &mut Vec<&'a Value>) {
 }
 
 fn mountpoints(n: &Value) -> Vec<String> {
+    if let Some(one) = n.get("mountpoint").and_then(|m| m.as_str()) {
+        return vec![one.to_string()]; // older lsblk
+    }
     n.get("mountpoints")
         .and_then(|m| m.as_array())
         .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
@@ -107,10 +193,11 @@ fn mountpoints(n: &Value) -> Vec<String> {
 }
 
 fn linux_disks() -> Result<Vec<DiskInfo>> {
-    let j: Value = serde_json::from_str(&run(
-        &["lsblk", "-J", "-b", "-o", "NAME,PATH,SIZE,MODEL,RM,HOTPLUG,TYPE,MOUNTPOINTS,TRAN"],
-        true,
-    )?)?;
+    // MOUNTPOINTS needs util-linux 2.37; older systems only know MOUNTPOINT
+    let base = "NAME,PATH,SIZE,MODEL,RM,HOTPLUG,TYPE,TRAN,FSTYPE,LABEL,PARTTYPE,PARTLABEL";
+    let text = run(&["lsblk", "-J", "-b", "-o", &format!("{base},MOUNTPOINTS")], true)
+        .or_else(|_| run(&["lsblk", "-J", "-b", "-o", &format!("{base},MOUNTPOINT")], true))?;
+    let j: Value = serde_json::from_str(&text)?;
     let mut disks = vec![];
     for d in j["blockdevices"].as_array().cloned().unwrap_or_default() {
         if d["type"] != "disk" {
@@ -119,9 +206,19 @@ fn linux_disks() -> Result<Vec<DiskInfo>> {
         let mut nodes = vec![];
         walk_json(&d, &mut nodes);
         let mounts: Vec<String> = nodes.iter().flat_map(|n| mountpoints(n)).collect();
-        let system = mounts
+        let system = mounts.iter().any(|m| is_system_mount(m));
+        let text = |v: &Value| v.as_str().unwrap_or("").trim().to_string();
+        let parts: Vec<DiskPart> = nodes
             .iter()
-            .any(|m| ["/", "/boot", "/boot/efi", "/usr", "/home"].contains(&m.as_str()) || m.starts_with("[SWAP"));
+            .filter(|n| n["type"] == "part")
+            .map(|n| DiskPart {
+                label: if text(&n["label"]).is_empty() { text(&n["partlabel"]) } else { text(&n["label"]) },
+                fs: text(&n["fstype"]).to_lowercase(),
+                kind: text(&n["parttype"]).to_lowercase(),
+                name: text(&n["partlabel"]),
+                size: n["size"].as_u64().or_else(|| n["size"].as_str().and_then(|s| s.parse().ok())).unwrap_or(0),
+            })
+            .collect();
         let truthy = |v: &Value| v.as_bool().unwrap_or(false) || v.as_str() == Some("1") || v.as_i64() == Some(1);
         let removable = truthy(&d["rm"]) || truthy(&d["hotplug"]) || d["tran"] == "usb";
         let size = d["size"].as_u64().or_else(|| d["size"].as_str().and_then(|s| s.parse().ok())).unwrap_or(0);
@@ -133,6 +230,7 @@ fn linux_disks() -> Result<Vec<DiskInfo>> {
             model: d["model"].as_str().unwrap_or("").trim().to_string(),
             removable,
             system,
+            parts,
         });
     }
     Ok(disks)
@@ -145,21 +243,65 @@ fn plist_dict(text: &str) -> Result<plist::Dictionary> {
         .ok_or_else(|| "diskutil output is not a dictionary".into())
 }
 
+/// Whole disks the running Mac system starts from (an external disk counts too).
+fn mac_boot_disks() -> Vec<String> {
+    let whole = |d: &str| d.trim_start_matches("/dev/").split('s').take(2).collect::<Vec<_>>().join("s");
+    let Ok(text) = run(&["diskutil", "info", "-plist", "/"], false) else { return vec![] };
+    let Ok(info) = plist_dict(&text) else { return vec![] };
+    let mut out = vec![];
+    if let Some(stores) = info.get("APFSPhysicalStores").and_then(|v| v.as_array()) {
+        for s in stores {
+            if let Some(d) = s.as_dictionary().and_then(|d| d.get("APFSPhysicalStore")).and_then(|v| v.as_string()) {
+                out.push(whole(d));
+            }
+        }
+    }
+    if let Some(d) = info.get("ParentWholeDisk").and_then(|v| v.as_string()) {
+        out.push(whole(d));
+    }
+    out
+}
+
 fn mac_disks() -> Result<Vec<DiskInfo>> {
     let list = plist_dict(&run(&["diskutil", "list", "-plist", "physical"], true)?)?;
+    let boot = mac_boot_disks();
+    let entries = list.get("AllDisksAndPartitions").and_then(|v| v.as_array()).cloned().unwrap_or_default();
     let mut disks = vec![];
     for name in list.get("WholeDisks").and_then(|v| v.as_array()).cloned().unwrap_or_default() {
         let Some(name) = name.as_string() else { continue };
         let info = plist_dict(&run(&["diskutil", "info", "-plist", name], true)?)?;
         let b = |k: &str, d: bool| info.get(k).and_then(|v| v.as_boolean()).unwrap_or(d);
         let internal = b("Internal", true);
+        let entry = entries.iter().filter_map(|e| e.as_dictionary()).find(|e| {
+            e.get("DeviceIdentifier").and_then(|v| v.as_string()) == Some(name)
+        });
+        let parts = entry
+            .and_then(|e| e.get("Partitions"))
+            .and_then(|v| v.as_array())
+            .map(|ps| {
+                ps.iter()
+                    .filter_map(|p| p.as_dictionary())
+                    .map(|p| {
+                        let t = |k: &str| p.get(k).and_then(|v| v.as_string()).unwrap_or("").to_string();
+                        DiskPart {
+                            label: t("VolumeName"),
+                            fs: String::new(),
+                            kind: t("Content").to_lowercase(),
+                            name: t("VolumeName"),
+                            size: p.get("Size").and_then(|v| v.as_unsigned_integer()).unwrap_or(0),
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         disks.push(DiskInfo {
             id: format!("/dev/{name}"),
             path: format!("/dev/r{name}"),
             size: info.get("TotalSize").and_then(|v| v.as_unsigned_integer()).unwrap_or(0),
             model: info.get("MediaName").and_then(|v| v.as_string()).unwrap_or("").to_string(),
             removable: !internal,
-            system: internal && !b("RemovableMediaOrExternalDevice", false),
+            system: boot.iter().any(|d| d == name) || (internal && !b("RemovableMediaOrExternalDevice", false)),
+            parts,
         });
     }
     Ok(disks)
@@ -171,6 +313,17 @@ fn win_disks() -> Result<Vec<DiskInfo>> {
     let items = match v {
         Value::Array(a) => a,
         other => vec![other],
+    };
+    let parts_raw = ps(
+        "Get-Partition -ErrorAction SilentlyContinue | ForEach-Object { $v = $_ | Get-Volume -ErrorAction SilentlyContinue; \
+         [pscustomobject]@{ D = $_.DiskNumber; S = $_.Size; K = $_.GptType; T = $_.Type; L = $v.FileSystemLabel; F = $v.FileSystem } } | ConvertTo-Json",
+        false,
+    )
+    .unwrap_or_default();
+    let parts: Vec<Value> = match serde_json::from_str(if parts_raw.trim().is_empty() { "[]" } else { &parts_raw }) {
+        Ok(Value::Array(a)) => a,
+        Ok(other) => vec![other],
+        Err(_) => vec![],
     };
     Ok(items
         .iter()
@@ -185,6 +338,21 @@ fn win_disks() -> Result<Vec<DiskInfo>> {
                 // BusType may come as text ("USB") or number (7 = USB, 12 = SD, 13 = MMC)
                 removable: ["USB", "SD", "MMC", "7", "12", "13"].contains(&bus.as_str()),
                 system: d["IsBoot"].as_bool().unwrap_or(false) || d["IsSystem"].as_bool().unwrap_or(false),
+                parts: parts
+                    .iter()
+                    .filter(|p| p["D"].as_u64() == d["Number"].as_u64())
+                    .map(|p| {
+                        let t = |k: &str| p[k].as_str().unwrap_or("").trim().to_string();
+                        let guid = t("K").trim_matches(|c| c == '{' || c == '}').to_lowercase();
+                        DiskPart {
+                            label: t("L"),
+                            fs: t("F").to_lowercase(),
+                            kind: if guid.is_empty() { t("T").to_lowercase() } else { guid },
+                            name: t("L"),
+                            size: p["S"].as_u64().unwrap_or(0),
+                        }
+                    })
+                    .collect(),
             }
         })
         .collect())
@@ -567,5 +735,47 @@ pub fn detach_image(dev: &str) {
         let _ = run(&["udisksctl", "loop-delete", "--no-user-interaction", "-b", dev], false);
     } else if IS_MAC {
         let _ = run(&["hdiutil", "detach", dev], false);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn part(label: &str, fs: &str, kind: &str) -> DiskPart {
+        DiskPart { label: label.into(), fs: fs.into(), kind: kind.into(), name: label.into(), size: 1 }
+    }
+
+    #[test]
+    fn recognises_disks_that_hold_a_system() {
+        let linux = [part("", "vfat", ESP), part("", "ext4", "0fc63daf-8483-4772-8e79-3d69d8477de4")];
+        assert_eq!(holds_system(&linux), Some("Linux"));
+        let windows = [part("", "vfat", ESP), part("", "", WINDOWS_KINDS[0]), part("C", "ntfs", "x")];
+        assert_eq!(holds_system(&windows), Some("Windows"));
+        assert_eq!(holds_system(&[part("", "crypto_luks", "x")]), Some("Linux"));
+        assert_eq!(holds_system(&[part("Mac", "", "apple_apfs")]), Some("macOS"));
+    }
+
+    #[test]
+    fn normal_sticks_are_not_systems() {
+        assert_eq!(holds_system(&[part("SANDISK", "exfat", "0x7")]), None);
+        assert_eq!(holds_system(&[part("Ubuntu 24", "iso9660", "0x0"), part("ESP", "vfat", ESP)]), None);
+        assert_eq!(holds_system(&[]), None);
+        // a sycrOS stick with an APFS section is still a stick
+        let ours = [part("sycrOS", "exfat", "x"), part("VTOYEFI", "vfat", "x"), part("Base", "", APFS)];
+        assert_eq!(holds_system(&ours), None);
+        assert_eq!(describe(&ours), "sycrOS stick");
+    }
+
+    #[test]
+    fn system_mounts_and_erase_words() {
+        for m in ["/", "/boot/efi", "/home", "/var", "/nix", "[SWAP]"] {
+            assert!(is_system_mount(m), "{m}");
+        }
+        for m in ["/media/me/sycrOS", "/run/media/me/x", "/mnt/usb", "/Volumes/sycrOS"] {
+            assert!(!is_system_mount(m), "{m}");
+        }
+        assert_eq!(erase_words("/dev/sdb"), "ERASE sdb");
+        assert_eq!(erase_words("2"), "ERASE 2");
     }
 }

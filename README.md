@@ -96,7 +96,7 @@ program needs nothing extra installed.
 **Windows step by step:**
 1. Open **PowerShell** and run the install line above.
 2. Open **sycrOS** from the Start menu and click **Yes** on the admin prompt.
-3. **Prepare a USB stick (erases it)** → choose the stick → press Enter for 34G → type `YES`.
+3. **Prepare a USB stick (erases it)** → choose the stick → press Enter for 34G → type what it asks, such as `ERASE 2`.
 4. **Add files to a stick** → choose the stick → drag your files into the window → Enter.
 5. **Safely remove a stick**, then unplug it.
 
@@ -124,23 +124,32 @@ The first run downloads the Ventoy 1.1.18 boot files (~20 MB, with `curl`) and c
 Offline? Download `ventoy-1.1.18-linux.tar.gz` from Ventoy's release page and run
 `sycros engine --tarball <file>`.
 
-## The menu
+## The app
 
-Run `sycros` with nothing after it and you get a menu (arrow keys + Enter, Esc = back):
+Run `sycros` with nothing after it. It opens one centred panel in your terminal (arrow keys +
+Enter, Esc = back):
 
 ```
-? What do you want to do? ›
-❯ Prepare a USB stick (erases it)
-  Add files to a stick (ISO, DMG, ...)
-  Show what is on a stick
-  Remove a macOS section
-  Remove a file
-  Safely remove a stick
-  Check a file (writes nothing)
-  Build an image file instead of a stick
-  Show all disks
-  Quit
+                    ╭──────────────── sycrOS 0.3.0 ────────────────╮
+                    │        SanDisk 3.2Gen1  57.3 GB  sdb         │
+                    │   ██████████████████████████░░░░░░░░░░░░░░   │
+                    │   ■ sycrOS 23.3 GB  ■ boot 32.0 MB           │
+                    │   ■ Sequoia 16.1 GB ■ Mojave 5.7 GB          │
+                    │                                              │
+                    │      › Prepare a USB stick (erases it)       │
+                    │        Add files to a stick (ISO, DMG, ...)  │
+                    │        ...                                   │
+                    ╰─────── ↑↓ choose   Enter select   q quit ────╯
 ```
+
+- It stays centred when you resize the window.
+- It shows a picture of your stick, and notices sticks being plugged in and out.
+- Long jobs show a progress bar and the time left.
+- It follows your terminal's colours, so light and dark themes both work.
+- It adds about 0.5 MB. It redraws only when something changes, and the spinner runs only while
+  working. (It does look for sticks every 2 seconds, or 5 on Windows.)
+
+In a very small or basic terminal, or with `sycros --simple`, you get the plain menu instead.
 
 **Choosing the macOS space:** it is fixed when you prepare the stick. Changing it later means
 erasing the stick again. One full macOS installer needs about 18G, two need about 34G, and a
@@ -150,7 +159,7 @@ add macOS images to that stick.
 When you run it with `sudo` on Linux, the stick is opened for *your* user, so you can also
 drag ISO files onto it with the Files app.
 
-It lists only USB/SD sticks to choose from. You can drag files from your file manager into
+You can drag files from your file manager into
 the terminal window to add them.
 
 ## Typed commands (same things, for scripts)
@@ -217,7 +226,13 @@ so the Mac firmware treats it like a stick made with `createinstallmedia`.
 
 ## Safety
 
-- `init` asks you to type `YES` and shows the disk model and size first.
+- Erasing asks you to type the exact disk name, such as `ERASE sdb`. It shows the model, size
+  and what is on the disk first.
+- USB SSDs look just like USB sticks to a computer. So sycrOS also looks at what is on a disk:
+  one that seems to hold Windows, Linux or macOS is not offered in the app, and in typed
+  commands it needs `--internal`. This is a best guess from the partitions, so always check
+  the model and size yourself.
+- `sycros init <file>` asks before overwriting an existing file.
 - Disks that hold your running system are refused. Internal disks need `--internal`.
 - Everything written is read back and compared with the original. A macOS section or ISO only
   appears on the stick after this check passes, so adding files takes about twice as long.

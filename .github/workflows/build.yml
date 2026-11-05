@@ -61,8 +61,8 @@ jobs:
           if ($deps -match 'VCRUNTIME') { throw "sycros.exe still needs VCRUNTIME140.dll" }
           target\release\sycros.exe --version
           target\release\sycros.exe disks
-      - name: Real Windows test - the menu in a real console
-        run: cargo test --release --test menu_pty
+      - name: Real Windows test - the app and menu in a real console
+        run: cargo test --release --test menu_pty --test tui_pty
       - name: Real Windows test - write to a virtual disk like a USB stick
         timeout-minutes: 15
         shell: pwsh
@@ -120,9 +120,9 @@ jobs:
       - uses: actions/checkout@v7
       - run: rustup target add ${{ matrix.target }}
       - run: cargo build --release --target ${{ matrix.target }}
-      - name: Real macOS test - the menu in a real terminal
+      - name: Real macOS test - the app and menu in a real terminal
         if: matrix.run
-        run: cargo test --release --test menu_pty
+        run: cargo test --release --test menu_pty --test tui_pty
       - name: Sign (ad-hoc) and check the program
         run: |
           B=target/${{ matrix.target }}/release/sycros

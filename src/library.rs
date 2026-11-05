@@ -110,7 +110,7 @@ pub fn ensure_layout(root: &Path) -> Result<()> {
         match fs::read_to_string(&cfg).ok().and_then(|t| serde_json::from_str(&t).ok()) {
             Some(v) => v,
             None => {
-                println!("  note: {} is not valid JSON, leaving it alone", cfg.display());
+                crate::ui::say(format!("  note: {} is not valid JSON, leaving it alone", cfg.display()));
                 return Ok(());
             }
         }
