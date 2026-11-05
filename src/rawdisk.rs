@@ -7,6 +7,7 @@
 use crate::gpt::Disk;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::path::Path;
 use std::time::Instant;
 
 pub const SECTOR: u64 = 512;
@@ -86,6 +87,30 @@ impl Target {
         Ok(())
     }
 
+    /// Read back what was written and compare it with the source file.
+    /// Run after `copy_from_file`, so a bad stick or broken write is caught.
+    pub fn verify_from_file(&mut self, src: &str, src_off: u64, length: u64, dst_off: u64, label: &str) -> io::Result<()> {
+        self.flush();
+        forget_cached(&self.file); // read from the stick, not from the computer's memory
+        let mut f = File::open(src)?;
+        f.seek(SeekFrom::Start(src_off))?;
+        let mut done = 0u64;
+        let mut buf = vec![0u8; CHUNK];
+        let mut p = Progress::new(label, length);
+        while done < length {
+            let want = ((length - done) as usize).min(CHUNK);
+            read_full(&mut f, &mut buf[..want])?;
+            if self.read_at(dst_off + done, want)? != buf[..want] {
+                eprintln!();
+                return Err(check_failed(done));
+            }
+            done += want as u64;
+            p.update(done);
+        }
+        p.finish();
+        Ok(())
+    }
+
     pub fn flush(&mut self) {
         let _ = self.file.sync_all(); // some raw devices refuse fsync; writes are unbuffered there
     }
@@ -117,6 +142,69 @@ impl Disk for Target {
         blob[s..s + data.len()].copy_from_slice(data);
         self.pwrite(a, &blob)
     }
+}
+
+/// Fill `buf` from a file; bytes past the end of the file stay zero.
+fn read_full(f: &mut File, buf: &mut [u8]) -> io::Result<()> {
+    let mut got = 0;
+    while got < buf.len() {
+        let k = f.read(&mut buf[got..])?;
+        if k == 0 {
+            break;
+        }
+        got += k;
+    }
+    buf[got..].fill(0);
+    Ok(())
+}
+
+fn check_failed(at: u64) -> io::Error {
+    io::Error::other(format!(
+        "Check after writing failed at {}: the stick did not keep the data correctly. \
+         Try again; if it fails again, try another stick.",
+        human(at)
+    ))
+}
+
+/// Linux keeps recently written data in memory. Drop it, so that reading back
+/// really reads the stick. (macOS raw disks and Windows disks are not cached this way.)
+pub fn forget_cached(file: &File) {
+    let _ = file.sync_all();
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::fd::AsRawFd;
+        unsafe {
+            libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED);
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = file;
+}
+
+/// Compare two files byte by byte (used after copying an ISO to the stick).
+pub fn verify_files(src: &Path, dst: &Path, label: &str) -> io::Result<()> {
+    let length = std::fs::metadata(src)?.len();
+    if std::fs::metadata(dst)?.len() != length {
+        return Err(check_failed(0));
+    }
+    let (mut a, mut b) = (File::open(src)?, File::open(dst)?);
+    forget_cached(&b);
+    let (mut x, mut y) = (vec![0u8; CHUNK], vec![0u8; CHUNK]);
+    let mut done = 0u64;
+    let mut p = Progress::new(label, length);
+    while done < length {
+        let want = ((length - done) as usize).min(CHUNK);
+        read_full(&mut a, &mut x[..want])?;
+        read_full(&mut b, &mut y[..want])?;
+        if x[..want] != y[..want] {
+            eprintln!();
+            return Err(check_failed(done));
+        }
+        done += want as u64;
+        p.update(done);
+    }
+    p.finish();
+    Ok(())
 }
 
 /// "1.5 GB" style sizes.

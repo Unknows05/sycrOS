@@ -9,7 +9,7 @@
 //! ```
 
 use crate::macimg::Fs;
-use crate::rawdisk::Progress;
+use crate::rawdisk::{verify_files, Progress};
 use crate::Result;
 use regex::Regex;
 use serde_json::{json, Value};
@@ -147,9 +147,23 @@ pub fn copy_file(src: &str, root: &Path, kind: OsKind) -> Result<PathBuf> {
     let name = Path::new(src).file_name().ok_or("bad file name")?;
     let dest = folder.join(name);
     let tmp = folder.join(format!("{}.sycros-part", name.to_string_lossy()));
+    // The file only gets its real name after it was copied AND checked.
+    match copy_and_check(Path::new(src), &tmp, kind) {
+        Ok(()) => {
+            fs::rename(&tmp, &dest)?;
+            Ok(dest)
+        }
+        Err(e) => {
+            let _ = fs::remove_file(&tmp);
+            Err(e)
+        }
+    }
+}
+
+fn copy_and_check(src: &Path, tmp: &Path, kind: OsKind) -> Result<()> {
     let size = fs::metadata(src)?.len();
     let mut fi = File::open(src)?;
-    let mut fo = File::create(&tmp)?;
+    let mut fo = File::create(tmp)?;
     let mut buf = vec![0u8; 8 << 20];
     let mut done = 0u64;
     let mut p = Progress::new(&format!("copying to {}/", kind.folder()), size);
@@ -165,8 +179,8 @@ pub fn copy_file(src: &str, root: &Path, kind: OsKind) -> Result<PathBuf> {
     fo.sync_all()?;
     drop(fo);
     p.finish();
-    fs::rename(&tmp, &dest)?;
-    Ok(dest)
+    verify_files(src, tmp, "checking copy")?;
+    Ok(())
 }
 
 fn is_bootable(name: &str) -> bool {

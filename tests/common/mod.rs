@@ -38,6 +38,10 @@ pub fn hfs_volume(label: &str, blocks: usize) -> Vec<u8> {
     }
     v[leaf + rec..leaf + rec + key.len()].copy_from_slice(&key);
     v[leaf + BLOCK - 2..leaf + BLOCK].copy_from_slice(&(rec as u16).to_be_bytes());
+    // HFS+ keeps a backup copy of its header 1024 bytes before the end of the volume
+    let header: Vec<u8> = v[h..h + 512].to_vec();
+    let backup = v.len() - 1024;
+    v[backup..backup + 512].copy_from_slice(&header);
     let end = v.len() - BLOCK;
     v[end..end + 11].copy_from_slice(b"SYCROS-TEST"); // recognisable bytes at the end
     v

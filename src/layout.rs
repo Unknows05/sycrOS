@@ -239,6 +239,7 @@ pub fn init(disk: &mut Disk, engine: &Engine, mac_space: u64, label: &str, verbo
     log("  writing boot files ...".into());
     let efi = engine.efi_img_path()?;
     raw.copy_from_file(&efi.to_string_lossy(), 0, EFI_PART_SECTORS * SECTOR, p2_first * SECTOR, "boot files")?;
+    raw.verify_from_file(&efi.to_string_lossy(), 0, EFI_PART_SECTORS * SECTOR, p2_first * SECTOR, "checking boot files")?;
     raw.flush();
 
     log("  formatting ISO partition (exFAT) ...".into());
@@ -286,7 +287,9 @@ pub fn add_mac(disk: &mut Disk, image: &str, name: Option<&str>, workdir: Option
     let vol = macimg::find_volume(image, workdir)?; // temp file removed when `vol` drops
     let label: String = name.unwrap_or(&vol.label).chars().take(36).collect();
     let label = if label.is_empty() { "macOS".to_string() } else { label };
-    let need = vol.length.div_ceil(MIB) * ALIGN; // sectors, whole MiB
+    // Exactly the volume's size: an HFS+ volume keeps its backup header in the last
+    // bytes of its partition. Only the START of the partition is aligned to 1 MiB.
+    let need = vol.length.div_ceil(SECTOR);
     log(format!("  found {} volume '{}' ({}), {}", vol.fs.label(), vol.label, vol.kind().label(), human(vol.length)));
 
     let first = g.find_space(need, p2.last + 1, ALIGN).ok_or_else(|| {
@@ -308,7 +311,10 @@ pub fn add_mac(disk: &mut Disk, image: &str, name: Option<&str>, workdir: Option
     })?;
     let part = Partition::new(vol.fs.gpt_type(), first, first + need - 1, 0, &label);
 
-    disk.raw.copy_from_file(&vol.source.to_string_lossy(), vol.offset, vol.length, first * SECTOR, "writing macOS")?;
+    let source = vol.source.to_string_lossy().to_string();
+    disk.raw.copy_from_file(&source, vol.offset, vol.length, first * SECTOR, "writing macOS")?;
+    // The section is only added to the disk's list after the check passes.
+    disk.raw.verify_from_file(&source, vol.offset, vol.length, first * SECTOR, "checking macOS")?;
     let tail = need * SECTOR - vol.length;
     if tail > 0 {
         disk.raw.zero(first * SECTOR + vol.length, tail)?;

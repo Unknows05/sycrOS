@@ -28,6 +28,10 @@ for Windows/macOS from anywhere stays easy. Downloads go through the system `cur
 - Menu changes: test by driving it through `script -qfc` with key presses (see git history / skill).
 - Packages must run on any machine: Linux = musl static (check `file` says static), Windows .exe must
   not import VCRUNTIME140.dll (check `objdump -p`), macOS binaries must pass `codesign --verify` (CI does).
+- macOS sections must be EXACTLY the volume's size (only the start is aligned): HFS+ needs its
+  backup header in the last 1024 bytes of the partition. Check with a real image: Linux must mount it.
+- `macimg::looks_like_mac`: the Mac volume must fill at least half the file (Linux ISOs may hold a tiny HFS+ part).
+- GitHub's test machines are virtual. Do not call them real hardware.
 - Never write to a real disk in tests; use image files (sparse) only.
 - Windows and macOS host code is compile-checked only, not run on real machines. Say so when reporting.
 - Owner reads plain English: no jargon in messages, README or CLI output.

@@ -121,6 +121,7 @@ Run `sycros` with nothing after it and you get a menu (arrow keys + Enter, Esc =
   Show what is on a stick
   Remove a macOS section
   Remove a file
+  Safely remove a stick
   Check a file (writes nothing)
   Build an image file instead of a stick
   Show all disks
@@ -204,15 +205,26 @@ so the Mac firmware treats it like a stick made with `createinstallmedia`.
 
 - `init` asks you to type `YES` and shows the disk model and size first.
 - Disks that hold your running system are refused. Internal disks need `--internal`.
+- Everything written is read back and compared with the original. A macOS section or ISO only
+  appears on the stick after this check passes, so adding files takes about twice as long.
+- **Safely remove a stick** in the menu (or `sycros eject <disk>`) finishes all writing, so the
+  stick can be unplugged without damaging files.
 - Removing a macOS section clears its first megabyte so no system finds stale data.
 
 ## Limits
 
-- Tested so far: image files on Linux (checked with `sgdisk -v` and byte for byte against
-  Ventoy), a real macOS image read correctly (Sequoia 15.8.1 from mkmaciso), and every push
-  runs the program on real Linux, Windows and Mac machines on GitHub. On the Mac it builds a
-  stick image with real Apple-made DMGs.
-  Not yet confirmed: booting a real stick on a real PC and a real Mac.
+- Tested so far:
+  - Stick images on Linux, checked with `sgdisk -v` and byte for byte against Ventoy's files.
+  - Real Sequoia 15.8.1 and Mojave 10.14.6 images from mkmaciso: added to a stick image, and
+    Linux opens the resulting macOS sections.
+  - Every push runs the program on GitHub's virtual Linux, Windows and Apple silicon Mac
+    machines. The Mac one builds a stick image with Apple-made DMGs. The Windows one only
+    lists disks.
+- Not yet confirmed:
+  - Starting from a stick on a real PC or a real Mac.
+  - Writing to a USB stick from Windows or macOS.
+  - The Intel Mac program has been built but never run.
+  - **Safely remove** on Windows and macOS.
 - No "upgrade boot engine in place" yet. To move to a newer Ventoy, re-run `init` (this erases the stick).
 - 4K-sector "native" disks are not supported (normal USB sticks use 512-byte sectors).
 

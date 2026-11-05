@@ -472,6 +472,45 @@ pub fn mount_data(disk: &DiskInfo, n: usize) -> Result<PathBuf> {
     }
 }
 
+/// Finish all writing and unmount every part of the disk, so it can be unplugged.
+pub fn eject_disk(disk: &DiskInfo) -> Result<()> {
+    if IS_LINUX {
+        quiet(&["sync"]);
+        for _ in 0..3 {
+            for (path, mounts) in lsblk_nodes(&disk.id) {
+                if !mounts.is_empty() {
+                    let _ = run(&["umount", &path], false);
+                }
+            }
+            sleep(Duration::from_secs(1));
+        }
+        let busy: Vec<String> = lsblk_nodes(&disk.id).into_iter().flat_map(|(_, m)| m).collect();
+        if !busy.is_empty() {
+            return Err(format!(
+                "The stick is still in use at: {}\n  Close any window or terminal open there, then try again.",
+                busy.join(", ")
+            )
+            .into());
+        }
+        // Power off where possible; being unmounted is already enough to be safe.
+        quiet(&["udisksctl", "power-off", "--no-user-interaction", "-b", &disk.id]);
+        Ok(())
+    } else if IS_MAC {
+        run(&["diskutil", "eject", &disk.id], true).map(|_| ())
+    } else {
+        ps(
+            &format!(
+                "Get-Partition -DiskNumber {} | Where-Object {{ $_.DriveLetter -match '[A-Z]' }} | ForEach-Object {{ \
+                 Write-VolumeCache -DriveLetter $_.DriveLetter; \
+                 (New-Object -ComObject Shell.Application).Namespace(17).ParseName(\"$($_.DriveLetter):\").InvokeVerb('Eject') }}",
+                disk.id
+            ),
+            true,
+        )
+        .map(|_| ())
+    }
+}
+
 /// macOS auto-mounts HFS+/APFS slots; unmount one before overwriting it.
 pub fn unmount_slot(disk: &DiskInfo, n: usize) {
     let p = part_path(disk, n);

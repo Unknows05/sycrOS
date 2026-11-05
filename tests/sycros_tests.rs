@@ -12,7 +12,8 @@ use std::process::Command;
 use sycros::gpt;
 use sycros::library::{self, OsKind};
 use sycros::macimg::{self, Fs, Kind};
-use sycros::{engine, layout, udif};
+use sycros::gpt::Disk as _;
+use sycros::{engine, layout, rawdisk, udif};
 
 struct TempDir(PathBuf);
 
@@ -286,4 +287,77 @@ fn clear_message_when_stick_has_no_mac_space() {
     let mut d = layout::Disk::open(&img, None, true, false).unwrap();
     let e = layout::add_mac(&mut d, &iso, None, None, false).unwrap_err().to_string();
     assert!(e.contains("no macOS space") && e.contains("Prepare it again"), "{e}");
+}
+
+/// A real HFS+ volume must end exactly where its partition ends: the backup header
+/// has to be in the last 1024 bytes (Linux refuses the volume otherwise, and this
+/// is the suspected cause of the globe on the Mac). The size here is not a whole MiB.
+#[test]
+fn section_is_exactly_the_volume_size() {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+    let Ok(eng) = engine::get_engine(false, std::env::var("SYCROS_TARBALL").ok().as_deref(), true) else {
+        eprintln!("skipped: boot engine not available");
+        return;
+    };
+    let t = TempDir::new("exact");
+    let img = t.0.join("stick.img").to_string_lossy().into_owned();
+    let vol = hfs_volume("Install macOS Sequoia", 2053); // 8 MiB + 20 KiB
+    let second = hfs_volume("Install macOS Mojave", 1030);
+    assert_ne!(vol.len() as u64 % layout::MIB, 0);
+    let (a, b) = (t.file("a.iso", &vol), t.file("b.iso", &second));
+    let mut d = layout::Disk::open(&img, Some(512 << 20), true, false).unwrap();
+    layout::init(&mut d, &eng, 64 * layout::MIB, "sycrOS", false).unwrap();
+    layout::add_mac(&mut d, &a, None, None, false).unwrap();
+    layout::add_mac(&mut d, &b, None, None, false).unwrap();
+    let g = d.read_gpt().unwrap();
+    drop(d);
+    let data = fs::read(&img).unwrap();
+    for (n, v) in [(3, &vol), (4, &second)] {
+        let p = g.get(n).unwrap();
+        assert_eq!(p.size(), v.len() as u64, "partition {n} must equal the volume");
+        assert_eq!(p.first % 2048, 0, "the start stays aligned to 1 MiB");
+        let end = (p.last as usize + 1) * 512;
+        assert_eq!(&data[end - 1024..end - 1022], b"H+", "backup header at the end of partition {n}");
+    }
+}
+
+/// Fedora-style ISO: gigabytes of ISO with a tiny Mac part inside. Not a macOS image.
+#[test]
+fn linux_iso_with_small_mac_part_is_not_macos() {
+    let t = TempDir::new("hybrid");
+    let tiny = hfs_volume("Fedora-Live", 256); // 1 MiB
+    let mut iso = gpt_disk(&tiny, gpt::APPLE_HFS, "");
+    iso.resize(64 << 20, 0);
+    iso[32768..32774].copy_from_slice(b"\x01CD001");
+    let p = t.file("Fedora-Workstation-Live.iso", &iso);
+    assert!(!macimg::looks_like_mac(&p));
+    assert_eq!(library::classify(&p), OsKind::Linux);
+    // an image that really is macOS is still recognised under any name
+    let real = hfs_volume("Install macOS Sonoma", 2048);
+    assert!(macimg::looks_like_mac(&t.file("Sonoma.iso", &real)));
+    assert!(macimg::looks_like_mac(&t.file("x.img", &gpt_disk(&real, gpt::APPLE_HFS, ""))));
+}
+
+/// The check after writing must notice damaged data.
+#[test]
+fn check_after_writing_catches_bad_data() {
+    let t = TempDir::new("verify");
+    let src = t.file("src.bin", &vec![7u8; 5 << 20]);
+    let img = t.file("stick.img", &vec![0u8; 8 << 20]);
+    let mut raw = rawdisk::Target::open(&img, 8 << 20, true, true).unwrap();
+    raw.copy_from_file(&src, 0, 5 << 20, 1 << 20, "w").unwrap();
+    raw.verify_from_file(&src, 0, 5 << 20, 1 << 20, "c").unwrap();
+    raw.write_at((3 << 20) + 5, &[9]).unwrap();
+    assert!(raw.verify_from_file(&src, 0, 5 << 20, 1 << 20, "c").is_err());
+    drop(raw);
+
+    let copied = library::copy_file(&src, &t.0, OsKind::Tools).unwrap();
+    assert_eq!(fs::read(&copied).unwrap().len(), 5 << 20);
+    rawdisk::verify_files(Path::new(&src), &copied, "c").unwrap();
+    let mut bad = fs::read(&copied).unwrap();
+    bad[100] = 9;
+    fs::write(&copied, bad).unwrap();
+    assert!(rawdisk::verify_files(Path::new(&src), &copied, "c").is_err());
 }

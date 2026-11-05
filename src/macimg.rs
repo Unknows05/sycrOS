@@ -149,7 +149,7 @@ pub fn apfs_info(f: &mut File, off: u64) -> Option<u64> {
     }
     let bs = gpt::le32(&b, 36) as u64;
     let count = gpt::le64(&b, 40);
-    Some(bs * count)
+    bs.checked_mul(count)
 }
 
 fn sniff(f: &mut File, off: u64, hint: &str) -> Option<(u64, Fs, String)> {
@@ -265,7 +265,14 @@ pub fn looks_like_mac(path: &str) -> bool {
     }
     let Ok(mut f) = File::open(path) else { return false };
     let size = f.metadata().map(|m| m.len()).unwrap_or(0);
-    candidates(&mut f, size).into_iter().any(|(off, _, _)| sniff(&mut f, off, "").is_some())
+    // Some Linux ISOs carry a small HFS+ part so that old Macs can start them. That does
+    // not make them macOS images: the Mac volume must fill most of the file.
+    candidates(&mut f, size).into_iter().any(|(off, max_len, _)| {
+        sniff(&mut f, off, "").is_some_and(|(len, _, _)| {
+            let len = len.min(max_len).min(size.saturating_sub(off));
+            len.saturating_mul(2) >= size
+        })
+    })
 }
 
 fn name_from_file(path: &str) -> String {

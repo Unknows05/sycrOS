@@ -16,6 +16,7 @@ const ACTIONS: &[&str] = &[
     "Show what is on a stick",
     "Remove a macOS section",
     "Remove a file",
+    "Safely remove a stick",
     "Check a file (writes nothing)",
     "Build an image file instead of a stick",
     "Show all disks",
@@ -51,9 +52,10 @@ pub fn run() -> Result<()> {
             2 => show_stick(),
             3 => remove_slot(),
             4 => remove_file(),
-            5 => check_files(),
-            6 => build_image(),
-            7 => run_cmd(Cmd::Disks),
+            5 => eject_stick(),
+            6 => check_files(),
+            7 => build_image(),
+            8 => run_cmd(Cmd::Disks),
             _ => return Ok(()),
         };
         match result {
@@ -196,6 +198,11 @@ fn add_files() -> Result<()> {
 fn show_stick() -> Result<()> {
     let (disk, _) = pick_disk("Which stick?", false)?;
     run_cmd(Cmd::Status { disk, files: true })
+}
+
+fn eject_stick() -> Result<()> {
+    let (disk, internal) = pick_disk("Which stick?", true)?;
+    run_cmd(Cmd::Eject { disk, internal })
 }
 
 fn check_files() -> Result<()> {

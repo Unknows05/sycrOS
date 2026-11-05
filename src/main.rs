@@ -17,6 +17,7 @@ examples:
   sycros add /dev/sdb macOS_Sonoma.dmg.img      write a macOS slot (Mac boot menu)
   sycros status /dev/sdb --files
   sycros remove /dev/sdb --slot 3               delete a macOS slot
+  sycros eject /dev/sdb                         safely remove the stick
   sycros inspect Tahoe.iso                      what sycrOS sees inside a file
   sycros init stick.img --size 16G --mac-space 8G   build an image to flash later
 
@@ -90,6 +91,13 @@ pub(crate) enum Cmd {
         /// File path on the disk, e.g. Linux/ubuntu.iso
         #[arg(long)]
         file: Option<String>,
+        /// Allow an internal (non-USB) disk
+        #[arg(long)]
+        internal: bool,
+    },
+    /// Safely remove a stick: finish writing, then it can be unplugged
+    Eject {
+        disk: String,
         /// Allow an internal (non-USB) disk
         #[arg(long)]
         internal: bool,
@@ -236,7 +244,11 @@ pub(crate) fn run_cmd(cmd: Cmd) -> Result<()> {
                     }
                 }
             }
-            println!("Done.");
+            if d.is_image {
+                println!("Done.");
+            } else {
+                println!("Done. Before unplugging the stick, use: sycros eject {disk}");
+            }
         }
 
         Cmd::Remove { disk, slot, file, internal } => {
@@ -261,6 +273,17 @@ pub(crate) fn run_cmd(cmd: Cmd) -> Result<()> {
                 std::fs::remove_file(&p)?;
                 println!("Removed {f}");
             }
+        }
+
+        Cmd::Eject { disk, internal } => {
+            if layout::is_image_target(&disk) {
+                return Err("This is an image file, not a stick: nothing to remove.".into());
+            }
+            need_admin(&disk, internal)?;
+            let info = layout::check_disk(&disk, true, internal)?;
+            println!("Finishing writes to {} ...", info.id);
+            hosts::eject_disk(&info)?;
+            println!("Done. It is now safe to unplug the stick.");
         }
 
         Cmd::Status { disk, files } => {
