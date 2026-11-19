@@ -32,6 +32,13 @@ pub const EFI_PART_SECTORS: u64 = 65536;
 /// Sectors 34..2047 on a GPT disk.
 const CORE_MAX_SECTORS: usize = 2014;
 
+/// Preparing the cache folder (download, unpack) must happen one thread at a time:
+/// two threads writing the same temporary file would break each other.
+fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    static BUSY: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    BUSY.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 pub fn cache_root() -> PathBuf {
     if let Ok(p) = std::env::var("SYCROS_CACHE") {
         return PathBuf::from(p);
@@ -97,9 +104,10 @@ impl Engine {
     /// Decompressed 32 MiB EFI partition image (cached on disk).
     pub fn efi_img_path(&self) -> Result<PathBuf> {
         let out = self.folder.join("ventoy/ventoy.disk.img");
+        let _one_at_a_time = one_at_a_time();
         if !out.exists() {
             let data = xz_file(&self.file("ventoy/ventoy.disk.img.xz")?)?;
-            let tmp = out.with_extension("part");
+            let tmp = out.with_extension(format!("part{}", std::process::id()));
             fs::write(&tmp, data)?;
             fs::rename(&tmp, &out)?;
         }
@@ -118,6 +126,7 @@ impl Engine {
             _ => return None,
         };
         let out = self.folder.join(format!("tool/{sub}/mkexfatfs"));
+        let _one_at_a_time = one_at_a_time();
         if !out.exists() {
             let src = self.folder.join(format!("tool/{sub}/mkexfatfs.xz"));
             let data = xz_file(&src).ok()?;
@@ -148,6 +157,7 @@ pub fn sha256_file(path: &Path) -> io::Result<String> {
 
 /// Return a ready Engine, downloading + verifying it the first time.
 pub fn get_engine(refresh: bool, tarball: Option<&str>, quiet: bool) -> Result<Engine> {
+    let _one_at_a_time = one_at_a_time();
     let folder = cache_root().join(format!("boot-{BOOT_FILES_VERSION}"));
     let marker = folder.join(".ok");
     if marker.exists() && !refresh {
