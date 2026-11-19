@@ -32,6 +32,7 @@ pub fn run() -> Result<()> {
         ("Remove a macOS section", remove_slot),
         ("Remove a file", remove_file),
         ("Safely remove a stick", eject_stick),
+        ("Upgrade the boot files of a stick", upgrade_stick),
         ("Check a file (writes nothing)", check_files),
     ];
     if !hosts::IS_WIN {
@@ -200,6 +201,11 @@ fn show_stick() -> Result<()> {
 fn eject_stick() -> Result<()> {
     let (disk, internal) = pick_disk("Which stick?", true)?;
     run_cmd(Cmd::Eject { disk, internal })
+}
+
+fn upgrade_stick() -> Result<()> {
+    let (disk, internal) = pick_disk("Which stick?", true)?;
+    run_cmd(Cmd::Upgrade { disk, yes: false, internal })
 }
 
 fn check_files() -> Result<()> {

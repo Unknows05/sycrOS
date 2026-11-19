@@ -74,8 +74,10 @@ All files: **https://github.com/Unknows05/sycrOS/releases/latest**
 
 | System | Download | How to start |
 |---|---|---|
-| Ubuntu / Debian / Mint | [sycros-linux-amd64.deb](https://github.com/Unknows05/sycrOS/releases/latest/download/sycros-linux-amd64.deb) | see below |
-| Any other 64-bit Linux | [sycros-linux-amd64.tar.gz](https://github.com/Unknows05/sycrOS/releases/latest/download/sycros-linux-amd64.tar.gz) | unpack, then `sudo ./sycros/sycros` |
+| Ubuntu / Debian / Mint (Intel/AMD) | [sycros-linux-amd64.deb](https://github.com/Unknows05/sycrOS/releases/latest/download/sycros-linux-amd64.deb) | see below |
+| Ubuntu / Debian (ARM computers) | [sycros-linux-arm64.deb](https://github.com/Unknows05/sycrOS/releases/latest/download/sycros-linux-arm64.deb) | same, with `arm64` in the file name |
+| Any other 64-bit Linux (Intel/AMD) | [sycros-linux-amd64.tar.gz](https://github.com/Unknows05/sycrOS/releases/latest/download/sycros-linux-amd64.tar.gz) | unpack, then `sudo ./sycros/sycros` |
+| Any other 64-bit Linux (ARM) | [sycros-linux-arm64.tar.gz](https://github.com/Unknows05/sycrOS/releases/latest/download/sycros-linux-arm64.tar.gz) | same |
 | Windows 10/11 | [sycros-windows-x64.zip](https://github.com/Unknows05/sycrOS/releases/latest/download/sycros-windows-x64.zip) | unzip, double-click **Start-sycrOS.cmd** (asks for admin) |
 | Mac with Apple chip (M1–M4) | [sycros-macos-apple-silicon.zip](https://github.com/Unknows05/sycrOS/releases/latest/download/sycros-macos-apple-silicon.zip) | unzip, double-click **Start-sycrOS.command** |
 | Mac with Intel chip | [sycros-macos-intel.zip](https://github.com/Unknows05/sycrOS/releases/latest/download/sycros-macos-intel.zip) | same |
@@ -135,7 +137,7 @@ Run `sycros` with nothing after it. It opens one centred panel in your terminal 
 Enter, Esc = back):
 
 ```
-                    ╭──────────────── sycrOS 0.3.0 ────────────────╮
+                    ╭──────────────── sycrOS 0.3.1 ────────────────╮
                     │        SanDisk 3.2Gen1  57.3 GB  sdb         │
                     │   ██████████████████████████░░░░░░░░░░░░░░   │
                     │   ■ sycrOS 23.3 GB  ■ boot 32.0 MB           │
@@ -187,6 +189,9 @@ sycros status /dev/sdb --files
 # remove a macOS section (number from status) or a file
 sycros remove /dev/sdb --slot 3
 sycros remove /dev/sdb --file Linux/ubuntu-24.04.iso
+
+# put the newest boot files on a stick you made earlier (your files stay)
+sycros upgrade /dev/sdb
 ```
 
 Disk names: Linux `/dev/sdb` · macOS `/dev/disk4` · Windows `2` (the disk number from `disks`).
@@ -196,6 +201,15 @@ disk needs the extra flag `--internal`.
 
 After `init` you can also drag ISO files into the `Windows`, `Linux` or `Tools` folders
 yourself. sycrOS only needs to be used for macOS images.
+
+### Upgrade the boot files of an old stick
+
+When a new version of sycrOS comes with newer boot files, you do not need to erase your stick.
+Choose **Upgrade the boot files of a stick** in the app, or run `sycros upgrade /dev/sdb`.
+It replaces only the boot part of the stick (the boot code and the small `sycrOS-boot` section).
+Your ISO files, your macOS sections, the stick's partition list and its ID are not touched. It checks
+what it wrote by reading it back. If it is stopped half way, the stick may not start from a PC until you run
+the upgrade again, so do not unplug the stick while it works.
 
 ### Build an image file instead of writing a stick
 
@@ -260,7 +274,9 @@ so the Mac firmware treats it like a stick made with `createinstallmedia`.
   - Writing to a real USB stick from Windows or macOS.
   - The Intel Mac program has been built but never run.
   - **Safely remove** on Windows and macOS.
-- The boot files cannot be updated in place yet. To get newer ones, prepare the stick again (this erases it).
+- Upgrading the boot files of a stick has been tested on stick images only, never on a real USB stick.
+- The Linux ARM program is built on GitHub's ARM machine, but has never been run by me on a real ARM computer.
+- To change the macOS space of a stick, you still have to prepare it again (this erases it).
 - 4K-sector "native" disks are not supported (normal USB sticks use 512-byte sectors).
 
 ## Tests

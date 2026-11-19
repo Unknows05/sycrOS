@@ -57,11 +57,17 @@ pub fn newer_version() -> Result<Option<String>> {
 pub fn program_asset() -> Option<&'static str> {
     match (std::env::consts::OS, std::env::consts::ARCH) {
         ("linux", "x86_64") => Some("sycros-linux-amd64"),
+        ("linux", "aarch64") => Some("sycros-linux-arm64"),
         ("windows", "x86_64") => Some("sycros-windows-x64.exe"),
         ("macos", "aarch64") => Some("sycros-macos-apple-silicon"),
         ("macos", "x86_64") => Some("sycros-macos-intel"),
         _ => None,
     }
+}
+
+/// The release file holding the .deb package for this computer (Debian/Ubuntu).
+pub fn deb_asset() -> &'static str {
+    if std::env::consts::ARCH == "aarch64" { "sycros-linux-arm64.deb" } else { "sycros-linux-amd64.deb" }
 }
 
 /// The checksum for `name` in a SHA256SUMS file.
@@ -136,13 +142,18 @@ pub fn install_program(base: &str, asset: &str, version: &str, target: &Path) ->
         // It must start and report the right version before it replaces anything.
         let out = Command::new(&new).arg("--version").stdin(Stdio::null()).output();
         let said = out.map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default();
-        if !said.contains(version) {
+        if !says_version(&said, version) {
             return Err("The downloaded program did not start correctly. Nothing was changed.".into());
         }
         swap_in(&new, target)
     })();
     let _ = std::fs::remove_dir_all(&dir);
     result
+}
+
+/// True if the program's `--version` text names exactly this version (0.3.1 must not match 0.3.10).
+fn says_version(said: &str, version: &str) -> bool {
+    said.split_whitespace().any(|word| word == version)
 }
 
 fn old_copy(target: &Path) -> PathBuf {
@@ -206,7 +217,7 @@ fn update_with_apt(base: &str) -> Result<()> {
     }
     let dir = private_folder()?;
     let result = (|| -> Result<()> {
-        let deb = fetch_checked(base, "sycros-linux-amd64.deb", &dir)?;
+        let deb = fetch_checked(base, deb_asset(), &dir)?;
         ui::say("Installing ...");
         let path = deb.to_string_lossy().to_string();
         hosts::run(&["apt-get", "install", "-y", &path], true).map(|_| ())
@@ -246,6 +257,23 @@ mod tests {
         assert!(is_newer("v1.0.0", "0.9.9"));
         assert!(!is_newer("0.3.0", "0.3.0"));
         assert!(!is_newer("0.2.9", "0.3.0"));
+    }
+
+    #[test]
+    fn release_files_exist_for_every_supported_computer() {
+        // names the build workflow publishes; this computer must be one of them
+        let names = ["sycros-linux-amd64", "sycros-linux-arm64", "sycros-windows-x64.exe", "sycros-macos-apple-silicon", "sycros-macos-intel"];
+        if let Some(a) = program_asset() {
+            assert!(names.contains(&a), "{a}");
+        }
+        assert!(["sycros-linux-amd64.deb", "sycros-linux-arm64.deb"].contains(&deb_asset()));
+    }
+
+    #[test]
+    fn version_text_must_match_exactly() {
+        assert!(says_version("sycros 0.3.1\n", "0.3.1"));
+        assert!(!says_version("sycros 0.3.10", "0.3.1"));
+        assert!(!says_version("", "0.3.1"));
     }
 
     #[test]

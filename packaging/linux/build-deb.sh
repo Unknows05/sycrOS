@@ -5,7 +5,11 @@ cd "$(dirname "$0")/../.."
 VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
 # Self-contained (static) program: runs on any 64-bit Linux, old or new.
 TARGET=${TARGET:-x86_64-unknown-linux-musl}
-ARCH=amd64
+case "$TARGET" in
+  aarch64-*) ARCH=arm64 ;;
+  x86_64-*) ARCH=amd64 ;;
+  *) echo "unknown target $TARGET" >&2; exit 1 ;;
+esac
 rustup target add "$TARGET" >/dev/null 2>&1 || true
 cargo build --release --target "$TARGET"
 ROOT=$(mktemp -d)

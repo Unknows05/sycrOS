@@ -391,3 +391,107 @@ fn old_boot_partition_name_still_works_and_is_renamed() {
     let label = d.raw.read_at(p2.first * 512 + 43, 7).unwrap();
     assert_eq!(label, b"VTOYEFI");
 }
+
+#[test]
+fn removing_a_file_only_accepts_paths_inside_the_disk() {
+    for ok in ["Linux/ubuntu.iso", "ubuntu.iso", "Windows\\win11.iso"] {
+        assert!(library::is_inside_disk(ok), "{ok}");
+    }
+    for bad in ["", "/etc/passwd", "\\Windows\\x", "C:\\Windows\\x", "c:x", "../x.iso", "Linux/../../x", "Linux\\..\\x"] {
+        assert!(!library::is_inside_disk(bad), "{bad}");
+    }
+}
+
+fn boot_engine() -> Option<engine::Engine> {
+    match engine::get_engine(false, std::env::var("SYCROS_TARBALL").ok().as_deref(), true) {
+        Ok(e) => Some(e),
+        Err(e) => {
+            eprintln!("skipped: boot engine not available: {e}");
+            None
+        }
+    }
+}
+
+/// An old stick (damaged boot code and boot files) gets the new boot files; everything
+/// else on it, and the disk's own ID, stays exactly as it was.
+#[test]
+fn upgrade_replaces_boot_files_and_keeps_everything_else() {
+    let Some(eng) = boot_engine() else { return };
+    let t = TempDir::new("upgrade");
+    let img = t.0.join("stick.img").to_string_lossy().into_owned();
+    {
+        let mut d = layout::Disk::open(&img, Some(1 << 30), true, false).unwrap();
+        layout::init(&mut d, &eng, 200 * layout::MIB, "sycrOS", false).unwrap();
+    }
+    let vol = hfs_volume("Install macOS Tahoe", 4096);
+    let mac = t.file("Tahoe.iso", &vol);
+    {
+        let mut d = layout::Disk::open(&img, None, true, false).unwrap();
+        layout::add_mac(&mut d, &mac, None, None, false).unwrap();
+    }
+    let before = fs::read(&img).unwrap();
+    let mut g = gpt::Gpt::read(&mut layout::Disk::open(&img, None, false, false).unwrap().raw, before.len() as u64 / 512).unwrap();
+    let p1 = g.get(1).unwrap().clone();
+    let p2 = g.get(2).unwrap().clone();
+    let p3 = g.get(3).unwrap().clone();
+    g.slots.clear();
+
+    // make it look like a stick with older boot files
+    {
+        use std::io::{Seek, SeekFrom, Write};
+        let mut f = fs::OpenOptions::new().write(true).open(&img).unwrap();
+        f.write_all(&[0xAA; 0x180]).unwrap(); // old boot code (the disk ID after it stays)
+        f.seek(SeekFrom::Start(0x190)).unwrap();
+        f.write_all(&[0xAA; 440 - 0x190]).unwrap();
+        f.seek(SeekFrom::Start(34 * 512)).unwrap();
+        f.write_all(&[0xBB; 4096]).unwrap(); // old core.img
+        f.seek(SeekFrom::Start(p2.first * 512)).unwrap();
+        f.write_all(&[0xCC; 1 << 20]).unwrap(); // old boot partition
+    }
+    {
+        let mut d = layout::Disk::open(&img, None, true, false).unwrap();
+        layout::upgrade(&mut d, &eng, false).unwrap();
+    }
+    let after = fs::read(&img).unwrap();
+
+    // boot code, core.img and boot partition are the new version, byte for byte
+    let boot = eng.boot_img().unwrap();
+    assert_eq!(&after[..92], &boot[..92]);
+    assert_eq!(after[92], 0x22);
+    assert_eq!(&after[93..0x180], &boot[93..0x180]);
+    let core = eng.core_img().unwrap();
+    assert_eq!(&after[34 * 512..34 * 512 + 500], &core[..500]);
+    assert_eq!(after[34 * 512 + 500], 0x23);
+    let e = p2.first as usize * 512;
+    assert!(after[e..e + (32 << 20)] == fs::read(eng.efi_img_path().unwrap()).unwrap()[..]);
+
+    // the disk's ID, signature, partition table, ISO partition and macOS section did not change
+    assert_eq!(&after[0x180..0x190], &before[0x180..0x190], "disk ID");
+    assert_eq!(&after[0x1B8..0x200], &before[0x1B8..0x200], "signature and table");
+    assert_eq!(&after[512..34 * 512], &before[512..34 * 512], "partition table");
+    let (a, b) = (p1.first as usize * 512, (p1.last as usize + 1) * 512);
+    assert!(after[a..b] == before[a..b], "ISO partition");
+    let (a, b) = (p3.first as usize * 512, p3.first as usize * 512 + vol.len());
+    assert!(after[a..b] == before[a..b], "macOS section");
+    assert_eq!(after.len(), before.len());
+    sgdisk_ok(&img);
+
+    // upgrading twice changes nothing more
+    {
+        let mut d = layout::Disk::open(&img, None, true, false).unwrap();
+        layout::upgrade(&mut d, &eng, false).unwrap();
+    }
+    assert!(fs::read(&img).unwrap() == after);
+}
+
+#[test]
+fn upgrade_refuses_a_disk_that_is_not_a_sycros_stick() {
+    let Some(eng) = boot_engine() else { return };
+    let t = TempDir::new("upgrade-no");
+    let junk = vec![0x5Au8; 8 << 20];
+    let img = t.file("other.img", &junk);
+    let mut d = layout::Disk::open(&img, None, true, false).unwrap();
+    assert!(layout::upgrade(&mut d, &eng, false).is_err());
+    drop(d);
+    assert!(fs::read(&img).unwrap() == junk, "nothing may be written");
+}

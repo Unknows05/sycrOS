@@ -22,17 +22,21 @@ ARCH=$(uname -m)
 
 case "$OS" in
   Linux)
-    [ "$ARCH" = "x86_64" ] || fail "only 64-bit Intel/AMD Linux is supported for now (this is $ARCH)."
+    case "$ARCH" in
+      x86_64) LARCH=amd64 ;;
+      aarch64|arm64) LARCH=arm64 ;;
+      *) fail "only 64-bit Intel/AMD and ARM Linux are supported (this is $ARCH)." ;;
+    esac
     if command -v apt >/dev/null 2>&1 && command -v dpkg >/dev/null 2>&1; then
       say "Downloading sycrOS (.deb) ..."
-      curl -fL --progress-bar -o "$TMP/sycros-linux-amd64.deb" "$BASE/sycros-linux-amd64.deb"
-      chmod 644 "$TMP/sycros-linux-amd64.deb"
-      cp "$TMP/sycros-linux-amd64.deb" /tmp/sycros-linux-amd64.deb   # apt's helper user can read /tmp
-      $SUDO apt install -y /tmp/sycros-linux-amd64.deb
-      rm -f /tmp/sycros-linux-amd64.deb
+      curl -fL --progress-bar -o "$TMP/sycros-linux-$LARCH.deb" "$BASE/sycros-linux-$LARCH.deb"
+      chmod 644 "$TMP/sycros-linux-$LARCH.deb"
+      cp "$TMP/sycros-linux-$LARCH.deb" /tmp/sycros-linux-$LARCH.deb   # apt's helper user can read /tmp
+      $SUDO apt install -y /tmp/sycros-linux-$LARCH.deb
+      rm -f /tmp/sycros-linux-$LARCH.deb
     else
       say "Downloading sycrOS ..."
-      curl -fL --progress-bar -o "$TMP/s.tar.gz" "$BASE/sycros-linux-amd64.tar.gz"
+      curl -fL --progress-bar -o "$TMP/s.tar.gz" "$BASE/sycros-linux-$LARCH.tar.gz"
       tar -xzf "$TMP/s.tar.gz" -C "$TMP"
       $SUDO install -m 755 "$TMP/sycros/sycros" /usr/local/bin/sycros
     fi

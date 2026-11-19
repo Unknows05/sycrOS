@@ -24,24 +24,30 @@ jobs:
 
   linux:
     needs: test
-    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-musl, name: amd64 }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, name: arm64 }
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      # static program (musl): runs on any 64-bit Linux
-      - run: packaging/linux/build-deb.sh
+      # static program (musl): runs on any 64-bit Linux of this CPU type
+      - run: sudo apt-get update && sudo apt-get install -y fakeroot
+      - run: TARGET=${{ matrix.target }} packaging/linux/build-deb.sh
       - name: Check the program is self-contained and runs
         run: |
-          B=target/x86_64-unknown-linux-musl/release/sycros
+          B=target/${{ matrix.target }}/release/sycros
           file $B | grep -q 'static' || { echo "not a static program"; exit 1; }
           $B --version
           $B disks
       - run: |
-          mkdir -p pkg/sycros && cp target/x86_64-unknown-linux-musl/release/sycros README.md pkg/sycros/
-          tar -C pkg -czf dist/sycros-linux-amd64.tar.gz sycros
-          cp target/x86_64-unknown-linux-musl/release/sycros dist/sycros-linux-amd64
+          mkdir -p pkg/sycros && cp target/${{ matrix.target }}/release/sycros README.md pkg/sycros/
+          tar -C pkg -czf dist/sycros-linux-${{ matrix.name }}.tar.gz sycros
+          cp target/${{ matrix.target }}/release/sycros dist/sycros-linux-${{ matrix.name }}
       - uses: actions/upload-artifact@v7
         with:
-          name: sycros-linux
+          name: sycros-linux-${{ matrix.name }}
           path: dist/*
 
   windows:
@@ -184,7 +190,7 @@ jobs:
     needs: release
     strategy:
       matrix:
-        os: [ubuntu-24.04, macos-latest, windows-latest]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7

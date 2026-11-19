@@ -20,6 +20,7 @@ examples:
   sycros status /dev/sdb --files
   sycros remove /dev/sdb --slot 3               delete a macOS slot
   sycros eject /dev/sdb                         safely remove the stick
+  sycros upgrade /dev/sdb                       newest boot files on an old stick (files stay)
   sycros update                                 update sycrOS to the newest version
   sycros inspect Tahoe.iso                      what sycrOS sees inside a file
   sycros init stick.img --size 16G --mac-space 8G   build an image to flash later
@@ -104,6 +105,16 @@ pub(crate) enum Cmd {
     /// Safely remove a stick: finish writing, then it can be unplugged
     Eject {
         disk: String,
+        /// Allow an internal disk, or one that seems to hold a computer's system
+        #[arg(long)]
+        internal: bool,
+    },
+    /// Put the newest boot files on a stick you already made (your files stay)
+    Upgrade {
+        disk: String,
+        /// Do not ask for confirmation
+        #[arg(long)]
+        yes: bool,
         /// Allow an internal disk, or one that seems to hold a computer's system
         #[arg(long)]
         internal: bool,
@@ -311,8 +322,8 @@ pub(crate) fn run_cmd(cmd: Cmd) -> Result<()> {
                 layout::refresh_menus(&mut d)?;
             }
             if let Some(f) = file {
-                if f.split(['/', '\\']).any(|part| part == "..") {
-                    return Err("file path must stay inside the disk".into());
+                if !library::is_inside_disk(&f) {
+                    return Err("give a path inside the disk, like Linux/ubuntu.iso (not a full path, and no ..)".into());
                 }
                 let root = d.data_folder().ok_or("Could not mount the ISO partition.")?;
                 let p = root.join(&f);
@@ -333,6 +344,23 @@ pub(crate) fn run_cmd(cmd: Cmd) -> Result<()> {
             ui::say(format!("Finishing writes to {} ...", info.id));
             hosts::eject_disk(&info)?;
             ui::say("Done. It is now safe to unplug the stick.");
+        }
+
+        Cmd::Upgrade { disk, yes, internal } => {
+            need_admin(&disk, internal)?;
+            let eng = engine::get_engine(false, None, false)?;
+            let mut d = layout::Disk::open(&disk, None, true, internal)?;
+            layout::check_layout(&d.read_gpt()?)?;
+            confirm(
+                &format!(
+                    "{} will get the boot files of this version ({}). Your ISO files and macOS sections are not touched.\nDo not unplug the stick until it says Done.",
+                    d.name,
+                    eng.version()
+                ),
+                yes,
+            )?;
+            layout::upgrade(&mut d, &eng, true)?;
+            ui::say(if d.is_image { "Done.".to_string() } else { format!("Done. Before unplugging the stick, use: sycros eject {disk}") });
         }
 
         Cmd::Update => update::update()?,

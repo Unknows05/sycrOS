@@ -263,10 +263,7 @@ pub fn init(disk: &mut Disk, engine: &Engine, mac_space: u64, label: &str, verbo
     raw.zero(p1_first * SECTOR, MIB)?;
 
     raw.write_at(0, &build_mbr(engine, total)?)?;
-    let mut core = engine.core_img()?;
-    core.resize(core.len().div_ceil(512) * 512, 0);
-    raw.write_at(34 * SECTOR, &core)?;
-    raw.write_at(34 * SECTOR + 500, &[0x23])?; // first blocklist sector = 35
+    raw.write_at(34 * SECTOR, &core_bytes(engine)?)?;
 
     let mut g = Gpt::new(total);
     g.add(Partition::new(gpt::MS_BASIC_DATA, p1_first, p1_last, 0, DATA_NAME), Some(1))?;
@@ -401,6 +398,68 @@ pub fn refresh_menus(disk: &mut Disk) -> Result<Option<PathBuf>> {
     library::ensure_layout(&root)?;
     library::write_mac_menu(&root, &slots)?;
     Ok(Some(root))
+}
+
+// ---------------------------------------------------------------------------
+// upgrade the boot files of an existing stick
+// ---------------------------------------------------------------------------
+/// core.img padded to whole sectors, ready to write at sector 34.
+fn core_bytes(engine: &Engine) -> Result<Vec<u8>> {
+    let mut core = engine.core_img()?;
+    core.resize(core.len().div_ceil(512) * 512, 0);
+    core[500] = 0x23; // first blocklist sector = 35
+    Ok(core)
+}
+
+/// Put this version's boot files on a stick that already works. The ISO files, the macOS
+/// sections, the partition table and the disk's own ID stay as they are.
+pub fn upgrade(disk: &mut Disk, engine: &Engine, verbose: bool) -> Result<()> {
+    let mut g = disk.read_gpt()?;
+    let (_, p2) = check_layout(&g)?; // refuses anything that is not a sycrOS disk, before any write
+    let log = |s: String| {
+        if verbose {
+            crate::ui::say(s);
+        }
+    };
+    let total = disk.raw.sectors();
+
+    // the new boot sector keeps the old disk ID and signature, and the old table
+    let old = disk.raw.read_at(0, 512)?;
+    if old[510..512] != [0x55, 0xAA] {
+        return Err("sector 0 of this disk is not a boot sector - refusing to touch it.".into());
+    }
+    let mut mbr = build_mbr(engine, total)?;
+    if old[0x180..0x190] != [0u8; 16] {
+        mbr[0x180..0x190].copy_from_slice(&old[0x180..0x190]);
+    }
+    mbr[0x1B8..0x1BC].copy_from_slice(&old[0x1B8..0x1BC]);
+    mbr[446..510].copy_from_slice(&old[446..510]);
+    let core = core_bytes(engine)?;
+
+    if let Some(info) = &disk.info {
+        if !hosts::IS_MAC {
+            hosts::release_disk(info, false)?;
+        }
+    }
+    // Boot files first, boot sector last. Old and new parts do not match each other, so a stick
+    // stopped half way may not start from a PC until the upgrade is run again.
+    log("  writing boot files ...".into());
+    let efi = engine.efi_img_path()?.to_string_lossy().to_string();
+    disk.raw.copy_from_file(&efi, 0, EFI_PART_SECTORS * SECTOR, p2.first * SECTOR, "boot files")?;
+    disk.raw.verify_from_file(&efi, 0, EFI_PART_SECTORS * SECTOR, p2.first * SECTOR, "checking boot files")?;
+    log("  writing boot code ...".into());
+    disk.raw.write_at(34 * SECTOR, &core)?;
+    disk.raw.verify_bytes(34 * SECTOR, &core)?;
+    disk.raw.write_at(0, &mbr)?;
+    disk.raw.verify_bytes(0, &mbr)?;
+    if matches!(g.get(1), Some(p) if p.name == OLD_DATA_NAME) || p2.name == OLD_EFI_NAME {
+        use_new_name(&mut g);
+        g.write(&mut disk.raw)?;
+    }
+    disk.raw.flush();
+    disk.reread();
+    log(format!("  boot files are now version {}", engine.version()));
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

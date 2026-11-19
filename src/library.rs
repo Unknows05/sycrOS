@@ -183,6 +183,17 @@ fn copy_and_check(src: &Path, tmp: &Path, kind: OsKind) -> Result<()> {
     Ok(())
 }
 
+/// True if `rel` is a plain path inside the stick: not absolute, no drive letter, no `..`.
+pub fn is_inside_disk(rel: &str) -> bool {
+    let rel = rel.trim();
+    let has_drive = rel.len() >= 2 && rel.as_bytes()[1] == b':';
+    !rel.is_empty()
+        && !rel.starts_with(['/', '\\'])
+        && !has_drive
+        && !Path::new(rel).has_root()
+        && !rel.split(['/', '\\']).any(|part| part == "..")
+}
+
 fn is_bootable(name: &str) -> bool {
     let low = name.to_lowercase();
     !name.starts_with("._") && BOOTABLE_EXT.iter().any(|e| low.ends_with(e))

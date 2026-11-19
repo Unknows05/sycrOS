@@ -45,6 +45,7 @@ enum Action {
     RemoveSection,
     RemoveFile,
     Eject,
+    Upgrade,
     Check,
     BuildImage,
     Disks,
@@ -60,6 +61,7 @@ fn home_items(latest: &Option<String>) -> Vec<(String, Action)> {
         ("Remove a macOS section", Action::RemoveSection),
         ("Remove a file", Action::RemoveFile),
         ("Safely remove a stick", Action::Eject),
+        ("Upgrade the boot files of a stick", Action::Upgrade),
         ("Check a file (writes nothing)", Action::Check),
     ]
     .into_iter()
@@ -90,6 +92,7 @@ enum Sure {
     UseThisDisk,
     NoMacSpace,
     Erase,
+    UpgradeBoot,
     Overwrite,
     RemoveItem,
 }
@@ -320,6 +323,22 @@ impl App {
                     self.start("Safely removing the stick", cmd);
                 }
             }
+            Action::Upgrade => {
+                if !self.have_disk() {
+                    return;
+                }
+                let disk = self.flow.disk.clone().unwrap_or_default();
+                if !self.flow.erase_ok {
+                    let lines = vec![
+                        format!("Disk: {disk}"),
+                        "The boot files on this stick get replaced with the newest ones. Your ISO files and macOS sections stay as they are.".into(),
+                        "Do not unplug the stick until it says Done.".into(),
+                    ];
+                    return self.sure(Sure::UpgradeBoot, "Upgrade the boot files?", lines, "UPGRADE".into());
+                }
+                let cmd = Cmd::Upgrade { disk, yes: true, internal: self.flow.internal };
+                self.start("Upgrading the boot files", cmd);
+            }
             Action::Check => {
                 if self.flow.files.is_empty() {
                     return self.ask(Ask::Files, "");
@@ -434,7 +453,7 @@ impl App {
         match kind {
             Sure::UseThisDisk => self.flow.internal = true,
             Sure::NoMacSpace => self.flow.no_mac_ok = true,
-            Sure::Erase | Sure::Overwrite => self.flow.erase_ok = true,
+            Sure::Erase | Sure::UpgradeBoot | Sure::Overwrite => self.flow.erase_ok = true,
             Sure::RemoveItem => self.flow.item_ok = true,
         }
         self.step();
@@ -1149,6 +1168,30 @@ mod tests {
         a.key(KeyCode::Enter, false);
         assert!(matches!(a.screen, Screen::Work(_)));
         assert!(matches!(a.pending, Some(Cmd::Init { .. })));
+    }
+
+    /// Upgrading the boot files always asks which stick, and only the exact word starts it.
+    #[test]
+    fn upgrade_needs_the_exact_word() {
+        let mut a = app();
+        a.flow = Flow::new(Action::Upgrade);
+        a.step();
+        assert!(matches!(a.screen, Screen::PickDisk { .. }));
+        a.key(KeyCode::Enter, false);
+        assert!(matches!(a.screen, Screen::Sure { kind: Sure::UpgradeBoot, .. }));
+        for c in "upgrade".chars() {
+            a.key(KeyCode::Char(c), false);
+        }
+        a.key(KeyCode::Enter, false);
+        assert!(matches!(a.screen, Screen::Sure { .. }), "wrong word must not continue");
+        for _ in 0..7 {
+            a.key(KeyCode::Backspace, false);
+        }
+        for c in "UPGRADE".chars() {
+            a.key(KeyCode::Char(c), false);
+        }
+        a.key(KeyCode::Enter, false);
+        assert!(matches!(a.pending, Some(Cmd::Upgrade { .. })));
     }
 
     #[test]

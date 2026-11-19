@@ -110,6 +110,16 @@ impl Target {
         Ok(())
     }
 
+    /// Read `data.len()` bytes back from the disk and compare them with `data`.
+    pub fn verify_bytes(&mut self, off: u64, data: &[u8]) -> io::Result<()> {
+        self.flush();
+        forget_cached(&self.file);
+        if self.read_at(off, data.len())? != data {
+            return Err(check_failed(off));
+        }
+        Ok(())
+    }
+
     pub fn flush(&mut self) {
         let _ = self.file.sync_all(); // some raw devices refuse fsync; writes are unbuffered there
     }
