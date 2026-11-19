@@ -33,6 +33,7 @@ pub fn run() -> Result<()> {
         ("Remove a file", remove_file),
         ("Safely remove a stick", eject_stick),
         ("Upgrade the boot files of a stick", upgrade_stick),
+        ("Check this computer (battery, parts, disks)", || run_cmd(Cmd::Check)),
         ("Check a file (writes nothing)", check_files),
     ];
     if !hosts::IS_WIN {

@@ -17,6 +17,7 @@ for Windows/macOS from anywhere stays easy. Downloads go through the system `cur
 - `update.rs` - update check (one HEAD request at app start, `SYCROS_NO_UPDATE_CHECK` turns it off) and `sycros update`.
   Needs the plain program assets and `SHA256SUMS` in every release (`build.yml`); keep those file names stable
   (`sycros-linux-amd64`/`-arm64`, with `.deb` and `.tar.gz` variants).
+- `sysinfo.rs` - `sycros check`: battery health, parts, disk health (Linux /sys + SMBIOS + NVMe ioctl, Windows PowerShell JSON, Mac ioreg/sysctl). Each reader = get text + `parse_*` (tested with made-up data). Read-only, output only on screen.
 - `hosts.rs` - all OS-specific commands (lsblk/udisksctl, diskutil/hdiutil, PowerShell)
 - `main.rs` - clap CLI (`run_cmd`). No command = `tui.rs` (ratatui centred full-screen app); `--simple` or a
   small terminal = `menu.rs` (dialoguer). Both reuse `run_cmd`. `ui.rs`: all messages and progress go through

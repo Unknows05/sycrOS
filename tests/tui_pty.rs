@@ -224,3 +224,24 @@ fn build_image_and_add_macos_through_the_screens() {
     app.quit();
     let _ = std::fs::remove_dir_all(dmg.parent().unwrap());
 }
+
+/// "Check this computer" through the app, on whatever machine runs the test (it only reads).
+#[test]
+fn checks_this_computer_and_shows_the_report_from_the_top() {
+    let mut app = App::open();
+    app.wait_for("Check this computer", 60);
+    // Prepare, Add, Show, Remove section, Remove file, Safely remove, Upgrade, then this one
+    for _ in 0..7 {
+        app.send(DOWN);
+    }
+    app.send(ENTER);
+    app.wait_for("Enter back to the menu", 120);
+    let text = app.text();
+    for want in ["BATTERY", "COMPUTER"] {
+        assert!(text.contains(want), "{want}\n{text}");
+    }
+    app.assert_centred();
+    app.send(ENTER);
+    app.wait_for("Prepare a USB stick", 10);
+    app.quit();
+}

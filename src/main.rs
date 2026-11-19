@@ -9,7 +9,7 @@ use std::io::{self, BufRead, Write};
 use std::path::Path;
 use sycros::library::{self, OsKind};
 use sycros::rawdisk::human;
-use sycros::{engine, hosts, layout, macimg, ui, update, Result};
+use sycros::{engine, hosts, layout, macimg, sysinfo, ui, update, Result};
 
 const EXAMPLES: &str = "\
 examples:
@@ -23,6 +23,7 @@ examples:
   sycros upgrade /dev/sdb                       newest boot files on an old stick (files stay)
   sycros update                                 update sycrOS to the newest version
   sycros inspect Tahoe.iso                      what sycrOS sees inside a file
+  sycros check                                  battery health, parts and disk health of this computer
   sycros init stick.img --size 16G --mac-space 8G   build an image to flash later
 
 disk names:  Linux /dev/sdb   macOS /dev/disk4   Windows 2 (disk number)";
@@ -128,6 +129,8 @@ pub(crate) enum Cmd {
     },
     /// Update sycrOS to the newest version (connects to GitHub)
     Update,
+    /// Show battery health, parts and disk health of this computer (writes nothing)
+    Check,
     /// Show how sycrOS would use a file (writes nothing)
     Inspect {
         #[arg(required = true)]
@@ -364,6 +367,11 @@ pub(crate) fn run_cmd(cmd: Cmd) -> Result<()> {
         }
 
         Cmd::Update => update::update()?,
+
+        Cmd::Check => {
+            ui::say("Looking at this computer ...");
+            ui::say(sysinfo::render(&sysinfo::collect()).join("\n"));
+        }
 
         Cmd::Status { disk, files } => {
             let mut d = layout::Disk::open(&disk, None, false, true)?;

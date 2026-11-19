@@ -46,6 +46,7 @@ enum Action {
     RemoveFile,
     Eject,
     Upgrade,
+    SystemCheck,
     Check,
     BuildImage,
     Disks,
@@ -62,6 +63,7 @@ fn home_items(latest: &Option<String>) -> Vec<(String, Action)> {
         ("Remove a file", Action::RemoveFile),
         ("Safely remove a stick", Action::Eject),
         ("Upgrade the boot files of a stick", Action::Upgrade),
+        ("Check this computer (battery, parts, disks)", Action::SystemCheck),
         ("Check a file (writes nothing)", Action::Check),
     ]
     .into_iter()
@@ -117,6 +119,9 @@ struct Work {
     result: Option<std::result::Result<(), String>>,
     /// Lines scrolled up from the end of the messages.
     scroll: usize,
+    /// A report to read from its first line (scroll counts down from the top).
+    from_top: bool,
+    offset: usize,
     stop_asked: bool,
 }
 
@@ -201,7 +206,8 @@ impl App {
     }
 
     fn start(&mut self, title: &str, cmd: Cmd) {
-        self.screen = Screen::Work(Work { title: title.into(), started: Some(Instant::now()), ..Default::default() });
+        let from_top = self.flow.action == Action::SystemCheck;
+        self.screen = Screen::Work(Work { title: title.into(), started: Some(Instant::now()), from_top, ..Default::default() });
         self.pending = Some(cmd);
     }
 
@@ -346,6 +352,7 @@ impl App {
                 self.start("Checking files", Cmd::Inspect { files: self.flow.files.clone(), workdir: None });
             }
             Action::Disks => self.start("All disks", Cmd::Disks),
+            Action::SystemCheck => self.start("This computer", Cmd::Check),
             Action::Update => self.start("Updating sycrOS", Cmd::Update),
             Action::RemoveSection | Action::RemoveFile => self.step_remove(),
             Action::Quit => self.quit = true,
@@ -534,6 +541,8 @@ impl App {
             },
             Screen::Work(w) if w.result.is_some() => match code {
                 KeyCode::Enter | KeyCode::Esc => self.screen = Screen::Home,
+                KeyCode::Up if w.from_top => w.offset = w.offset.saturating_sub(1),
+                KeyCode::Down if w.from_top => w.offset += 1,
                 KeyCode::Up => w.scroll += 1,
                 KeyCode::Down => w.scroll = w.scroll.saturating_sub(1),
                 _ => {}
@@ -555,7 +564,9 @@ impl App {
         match ev {
             ui::Event::Line(text) => {
                 for line in text.split('\n') {
-                    if !line.trim().is_empty() {
+                    // blank lines only between lines of text, never first and never twice
+                    let blank_ok = w.steps.last().is_some_and(|l| !l.is_empty());
+                    if !line.trim().is_empty() || blank_ok {
                         w.steps.push(line.trim_end().to_string());
                     }
                 }
@@ -880,7 +891,7 @@ fn view_work<'a>(w: &Work, frame: usize, width: usize, height: usize) -> (String
     }
     let room = height.saturating_sub(tail.len());
     let last_start = all.len().saturating_sub(room);
-    let start = last_start.saturating_sub(w.scroll);
+    let start = if w.from_top { w.offset.min(last_start) } else { last_start.saturating_sub(w.scroll) };
     body.extend(all.into_iter().skip(start).take(room));
     body.extend(tail);
     let hint = if w.result.is_some() { " Enter back to the menu   ↑↓ scroll " } else { " Please wait. Do not unplug the stick. " };

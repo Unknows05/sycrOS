@@ -137,7 +137,7 @@ Run `sycros` with nothing after it. It opens one centred panel in your terminal 
 Enter, Esc = back):
 
 ```
-                    ╭──────────────── sycrOS 0.3.1 ────────────────╮
+                    ╭──────────────── sycrOS 0.3.2 ────────────────╮
                     │        SanDisk 3.2Gen1  57.3 GB  sdb         │
                     │   ██████████████████████████░░░░░░░░░░░░░░   │
                     │   ■ sycrOS 23.3 GB  ■ boot 32.0 MB           │
@@ -201,6 +201,27 @@ disk needs the extra flag `--internal`.
 
 After `init` you can also drag ISO files into the `Windows`, `Linux` or `Tools` folders
 yourself. sycrOS only needs to be used for macOS images.
+
+### Check this computer
+
+Choose **Check this computer (battery, parts, disks)** in the app, or run `sycros check`. It only
+looks and shows the result on the screen: nothing is written or saved. It works on Linux, Windows and Mac,
+and you can run it from any computer, not only one with a stick in it.
+
+- **Battery:** how much it holds now compared with when it was new (health in %, with a plain
+  verdict: Good / Getting weak / Worn out), both sizes, charge cycles and the charge right now.
+- **Computer:** model, serial number, BIOS version and system.
+- **Processor:** name, cores, threads and top speed.
+- **Memory:** the total, each memory stick (size, type, speed, maker), and the most memory the
+  main board can take and how many slots it has.
+- **Graphics** and **disks:** size, type, health, how much of an SSD's life is used, hours switched
+  on and temperature.
+
+Some answers need admin rights (`sudo sycros check` on Linux, open as Administrator on Windows): the
+memory sticks, the serial number and the health of disks. Without them sycrOS says what is missing.
+Health of hard disks and SATA SSDs on Linux and Mac needs `smartctl` (smartmontools) if you want it; NVMe
+drives and Windows work without it. A laptop that cannot start Windows cannot run this yet: you
+need a working system to run it.
 
 ### Upgrade the boot files of an old stick
 
@@ -275,6 +296,7 @@ so the Mac firmware treats it like a stick made with `createinstallmedia`.
   - The Intel Mac program has been built but never run.
   - **Safely remove** on Windows and macOS.
 - Upgrading the boot files of a stick has been tested on stick images only, never on a real USB stick.
+- **Check this computer** was run for real on one Linux laptop only (battery, processor, graphics, disk sizes). The memory-stick and NVMe-health reading is tested with made-up data, because those need admin rights. The Windows and Mac readers are tested with made-up answers and have never run on a real Windows or Mac computer (the Windows test machine on GitHub runs the Windows one for a real answer).
 - The Linux ARM program is built on GitHub's ARM machine, but has never been run by me on a real ARM computer.
 - To change the macOS space of a stick, you still have to prepare it again (this erases it).
 - 4K-sector "native" disks are not supported (normal USB sticks use 512-byte sectors).
